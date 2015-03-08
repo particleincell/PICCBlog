@@ -1,0 +1,292 @@
+<html>
+<head>
+<link href='http://fonts.googleapis.com/css?family=Unkempt:400,700' rel='stylesheet' type='text/css'>
+<style>
+canvas {border: 1px solid black;margin:0 0 0;}
+div {display:inline-block;vertical-align:top;}
+div.toolbar div{display:block;}
+div.results{
+margin: 1em 0;
+font-weight: bold;
+font-family: 'Unkempt', cursive;
+background: #ffa;
+width: 10.5em;
+border: 2px solid black;
+border-radius: 0.5em;
+box-shadow: 5px 5px 5px #ddd;
+padding: 0.1em;
+}
+
+div.button{
+width: 5em;
+text-align:center;
+padding: 0.5em 0;
+border-radius: 0.5em;
+color: white;
+font-weight: bold;
+font-family: 'Unkempt', cursive;
+font-size: 1.5em;
+cursor: pointer;
+border-width: 4px;
+}
+
+div.green {background-color:green;border-color:green;}
+div.blue {background-color: blue;border-color:blue;}
+
+div.off {border-style: outset;}
+div.on {border-style:inset;}
+
+</style>
+
+</head>
+
+<body>
+<canvas id="c" width="400px" height="400px">
+Your browser does not support &lt;canvas&gt;
+</canvas>
+<div class="toolbar">
+<div id="go" class="button off green" onmousedown="return false" onclick="goClick();">&#9658; GO</div>
+<div class="results">
+Count: <span id="count"></span><br>
+Average: <span id="ave"></span><br>
+Flux: <span id="flux"></span><br>
+Temp: <span id="T"></span><br>
+Density: <span id="den"></span><br> 
+Pressure: <span id="P"></span><br>
+</div>
+<div id="reset" class="button off blue" onmousedown="return false" onclick="resetClick();">Reset</div>
+
+</div>
+<script>
+var go=false;
+var c=document.getElementById("c");
+var ctx=c.getContext("2d");
+
+var it;
+var periodic=false;
+var count;
+var parts = [];
+
+var dt=1e-2;
+var T=300;
+var k=1.3806e-23;
+var P = 5e-6*133.32;	/*in pascals*/
+var den0 = P/(k*T);
+var np = 150;
+var spwt = den0*400*400/np;
+
+var mass=24.305*1.66053e-27;
+var u_ave = Math.sqrt(8*k*T/(Math.PI*mass));
+
+/*loads particles and resets counters*/
+function init()
+{
+    if (!ctx.setLineDash) 
+        ctx.setLineDash = function (a) {ctx.mozDash=a;}
+    
+    for (p=0;p<np;p++)
+    {
+        x = [Math.random()*400,Math.random()*400];
+        v = sampleMaxw(T,mass);
+        parts[p]=new Part(x,v);
+    }
+
+     it = 0;
+     count = 0;
+     console.log("Done Init");
+     drawCanvas();
+}
+
+/*handles click of the "Go" button*/
+function goClick()
+{
+    var b=document.getElementById("go");
+    
+    /*match whole word "off"*/
+    if ( b.className.match(/\boff\b/) )
+    {
+        b.className = b.className.replace( /\boff\b/g , 'on');
+        go=true;    
+    }
+    else if ( b.className.match(/\bon\b/) )
+    {
+        b.className = b.className.replace( /\bon\b/g , 'off');
+        go=false;
+    }
+    else 
+        console.log("didn't match!");
+
+    if (go) timeStep();
+}
+
+/*handles click of the "Reset" button*/
+function resetClick()
+{
+    var b=document.getElementById("reset");
+    if ( b.className.match(/\boff\b/) )
+    {
+        b.className = b.className.replace( /\boff\b/g , 'on');
+        init();
+    }
+    
+    /*simulate button click by unclicking*/
+    setTimeout(function(){resetUnclick()},200);
+}
+
+/*unclicks the "Reset" button*/
+function resetUnclick()
+{
+    var b=document.getElementById("reset");
+    if ( b.className.match(/\bon\b/) )
+        b.className = b.className.replace( /\bon\b/g , 'off');
+}
+
+/*class to hold a single particle*/
+function Part(pos,vel)
+{
+   this.pos = pos;
+   this.vel = vel;
+}
+
+/*sample maxwellian distribution function*/
+function sampleMaxw(T,m)
+{
+    var vp=Math.sqrt(2*k*T/m);
+
+    var f;
+    do
+    {
+        u = Math.random()*6*vp;
+        f = Math.sqrt(Math.pow(m/(2*Math.PI*k*T),3))*4*Math.PI*u*u*Math.exp(-m*u*u/(2*k*T));
+    } while (Math.random()>=f);
+        
+    /*pick a random angle*/
+    var theta = 2*Math.PI*Math.random();
+     
+    /*pick a random direction for n[2]*/
+    var R = -1.0+2*Math.random();
+    var a = Math.sqrt(1-R*R);
+
+    var v = []; 
+    v[0] = Math.cos(theta)*a*u;
+    v[1] = Math.sin(theta)*a*u;
+    v[2] = R*u;
+    
+    return v;
+}
+
+/*performs a single time step of the simulation*/
+function timeStep()
+{
+	var usum=0;
+    for (var p=0;p<np;p++)
+	{
+        var part=parts[p];
+        part.pos[0]+=part.vel[0]*dt;
+        part.pos[1]+=part.vel[1]*dt;
+        
+        usum+=Math.sqrt(part.vel[0]*part.vel[0]+part.vel[1]*part.vel[1]+part.vel[2]*part.vel[2]);
+        
+        /*did we leave the right boundary?*/
+        if (part.pos[0]>=400 && part.vel[0]>0)
+        {
+            /*evaluate intersection point*/
+            var old = [];
+            old[0] = part.pos[0]-part.vel[0]*dt;
+            old[1] = part.pos[1]-part.vel[1]*dt;
+            var t = (400-old[0])/(part.pos[0]-old[0]);
+            var yp = old[1]+t*(part.pos[1]-old[1]);
+            
+            /*did we hit the QCM?*/
+            if (yp>=300 && yp<=400)
+            {        
+                count++;
+                x = [Math.random()*400,Math.random()*400];
+                v = sampleMaxw(T,mass);
+                parts[p]=new Part(x,v);
+                continue;
+            }
+        }
+        
+        /*periodic*/
+        if (periodic)
+        {
+            if (part.pos[0]>400) part.pos[0]-=400;
+            else if (part.pos[0]<0) part.pos[0]+=400;
+            if (part.pos[1]>400) part.pos[1]-=400;
+            else if (part.pos[1]<0) part.pos[1]+=400;
+        }
+        else    /*reflective boundaries*/
+        {
+            if (part.pos[0]>400 || part.pos[0]<0) part.vel[0]*=-1;
+            if (part.pos[1]>400 || part.pos[1]<0) part.vel[1]*=-1;
+        }	
+	}
+    
+    drawCanvas();
+	it++;
+	
+	/*calculations*/
+	var ave=count/(it*dt);
+	var flux=spwt*ave/100;  /*100 is the qcm length * unit depth*/
+	var uc = usum/np;   /*average velocity from simulation, u_ave is kinetic theory*/
+    var den=flux*4/uc;  /*using uc instead of u_ave due to numerical cooling*/
+	var P=den*k*T/133.32;
+	var Tc = (uc*uc)*(Math.PI*mass)/(8*k);
+    document.getElementById("count").innerHTML=count;
+	document.getElementById("ave").innerHTML=ave.toFixed(2);
+	document.getElementById("flux").innerHTML=flux.toExponential(2);
+	document.getElementById("den").innerHTML=den.toExponential(2);
+	document.getElementById("P").innerHTML=P.toExponential(2);
+    document.getElementById("T").innerHTML=Tc.toFixed(1)+" vs. "+T.toFixed(1);
+    
+    /*continue iterating while the "Go" button is clicked*/
+	if (go) 
+		setTimeout(function(){timeStep()},10);
+}
+
+/*plots particles adn the QCM*/
+function drawCanvas()
+{
+    ctx.clearRect (0,0,400,400);
+    for (var p=0;p<np;p++)
+    {
+        var part = parts[p];
+        drawParticle(part.pos[0],part.pos[1]);
+    }
+	drawRest();
+}
+
+/*draws single particle*/
+function drawParticle(x,y)
+{
+    /*gradient to make the particles look spherical*/
+    var grd=ctx.createRadialGradient(x,y,1,x,y,12);
+    grd.addColorStop(0,"red");
+    grd.addColorStop(1,"#770000");
+
+    ctx.beginPath();
+    ctx.arc(x,y,10,0,2*Math.PI);
+    ctx.fillStyle=grd;
+    ctx.fill();
+}
+
+/*draws teh QCM*/
+function drawRest()
+{
+    ctx.beginPath();
+    ctx.moveTo(398,400);
+    ctx.lineTo(398,300);
+    ctx.lineWidth=4;
+    ctx.setLineDash([10]);
+    ctx.stroke();
+}
+
+/*handler to call init once document finishes loading*/
+var checkLoad = function() {   
+    document.readyState !== "complete" ? setTimeout(checkLoad,20) : init();   
+};  
+checkLoad(); 
+</script> 
+</body>
+</html>

@@ -1,0 +1,318 @@
+<!-- Javascript+HTML DSMC Demo, Lubos Brieda, Dec 2012
+Please visit http://www.particleincell.com/2012/html5-dsmc for more info -->
+
+<canvas id="cell" style="border:1px solid #888;box-shadow:10px 10px 5px #888;" width=600 height=400>
+<h2>Your browser does not support the &lt;canvas&gt; element. Please use a different browser or click <a href="http://www.particleincell.com/2012/dsmc0/">here</a> if you are viewing this in an email.</h2>
+</canvas>
+
+<script> 	
+/***** START OF DSMC CLASS *****/
+var dsmcCell = (function() {
+var AMU = 1.66053886e-27;	/*atomic mass*/
+var K = 1.3806488e-23;		/*Boltzmann constant*/
+var V_c=0.001*0.01*0.001;	/*cell volume*/
+var sigma_cr_max=1e-18;		/*initial guess*/
+var Fn = 5e8;				/*macroparticle weight*/
+
+var delta_t=2e-5;			/*time step length*/
+var it;						/*current iteration*/
+var vdf;					/*public array to hold VDF data*/
+
+var part_list = new Array(); /*particle list*/
+
+/*particle class, creates particle with isotropic velocity,
+see: http://www.particleincell.com/2012/isotropic-velocity/ */	
+function Part(vdrift,temp,mass)
+{
+	this.v=[];
+	
+	/*sample speed*/
+	var vth = sampleVth(temp,mass);
+	
+	/*pick a random direction*/
+	var theta = 2*Math.PI*Math.random();
+	var R = -1.0+2*Math.random();
+	var a = Math.sqrt(1-R*R);
+ 
+	this.v[0] = vth*Math.cos(theta)*a;
+	this.v[1] = vth*Math.sin(theta)*a;
+	this.v[2] = vth*R + vdrift;
+	
+	this.mass=mass;
+}
+
+/*creates initial particle populations*/
+function init()
+{
+	/*clear data, important if restarting*/
+	part_list = [];
+	it = 0;
+	
+	/*first create slow particles*/
+	for (var i=0;i<1000;i++)
+		part_list.push(new Part(100,5,32*AMU));
+		
+	/*and now the fast ones*/
+	for (var i=0;i<1000;i++)
+		part_list.push(new Part(300,5,32*AMU));
+	
+	/*show initial plot*/
+	vdf = computeVDF(0,450,25);
+	plotXY(vdf);
+}
+
+/* performs a single iteration of DSMC*/	
+function performDSMC()
+{
+	/*fetch number of particles*/
+	var np = part_list.length;
+		
+	/*compute number of groups according to NTC*/
+	var ng_f = 0.5*np*np*Fn*sigma_cr_max*delta_t/V_c;
+	var ng = Math.floor(ng_f+0.5);	/*number of groups, round*/
+	var nc = 0;			/*number of collisions*/
+	
+	/*for updating sigma_cr_maxx*/
+	var sigma_cr_max_temp = 0;
+	var cr_vec = [];
+			
+	/*iterate over groups*/
+	for (var i=0;i<ng;i++)
+	{
+		var part1,part2;
+		
+		/*select first particle*/
+		part1=part_list[Math.floor(Math.random()*np)];
+				
+		/*select the second one, making sure the two particles are unique*/
+		do {part2=part_list[Math.floor(Math.random()*np)];}
+		while (part1==part2);
+				
+		/*relative velocity*/
+		for (var j=0;j<3;j++)
+			cr_vec[j] = part1.v[j]-part2.v[j];		
+		var cr = mag(cr_vec);
+			
+		/*eval cross section*/
+		var sigma = evalSigma(cr);
+			
+		/*eval sigma_cr*/
+		var sigma_cr=sigma*cr;
+		
+		/*update sigma_cr_max*/
+		if (sigma_cr>sigma_cr_max_temp)
+			sigma_cr_max_temp=sigma_cr;
+			
+		/*eval prob*/
+		var P=sigma_cr/sigma_cr_max;
+		
+		/*did the collision occur?*/
+		if (P>Math.random())
+		{
+			nc++;
+			collide(part1,part2);
+		}
+	}
+
+	/*update sigma_cr_max if we had collisions*/
+	if (nc)
+		sigma_cr_max = sigma_cr_max_temp;
+	
+	/*show diagnostics*/
+	vdf = computeVDF(0,450,25);
+	plotXY(vdf);
+	
+	it++;
+	
+	/*output more data to the console*/
+	console.log("it: "+it+"\tng: "+ng+"\tnc: "+nc+"\tscmax: "+sigma_cr_max);
+	
+	/*run for 500 time steps*/
+	if (it<500)
+		setTimeout(performDSMC,10);
+}
+
+/*samples from 1D Maxwellian using the Birdsall method*/
+function maxw1D()
+{
+	return 0.5*(Math.random()+Math.random()+Math.random()-1.5);		
+}
+
+/*returns random thermal velocity*/
+function sampleVth(temp,mass)
+{
+	var sum=0;
+	var vth = Math.sqrt(2*K*temp/mass);
+	for (var i=0;i<3;i++)
+	{
+		var  m1 = vth*maxw1D();
+		sum += m1*m1;
+	}
+	
+	return Math.sqrt(sum);
+}
+
+/*evaluates cross-section using a simple (non-physical) inverse relationship*/
+function evalSigma(rel_g) 
+{
+	return 1e-18*Math.pow(rel_g,-0.5);
+}
+	
+/*returns magnitude of a 3 component vector*/
+function mag(v)
+{
+	return Math.sqrt(v[0]*v[0]+v[1]*v[1]+v[2]*v[2]);
+}
+	
+/*performs momentum transfer collision between two particles*/
+function collide (part1, part2)
+{
+	/*center of mass velocity*/
+	var cm = [];
+	for (var i=0;i<3;i++)
+		cm[i] = (part1.mass*part1.v[i] + part2.mass*part2.v[i])/
+				(part1.mass+part2.mass);
+		
+	/*relative velocity, magnitude remains constant through the collision*/
+	var cr=[];
+	for (var i=0;i<3;i++)
+		cr[i] = part1.v[i]-part2.v[i];
+		
+	var cr_mag = mag(cr);
+		
+	/*pick two random angles, per Bird's VHS method*/
+	var theta = Math.acos(2*Math.random()-1);
+	var phi = 2*Math.PI*Math.random();
+		
+	/*perform rotation*/
+	cr[0] = cr_mag*Math.cos(theta);
+	cr[1] = cr_mag*Math.sin(theta)*Math.cos(phi);
+	cr[2] = cr_mag*Math.sin(theta)*Math.sin(phi);
+	
+	/*post collision velocities*/
+	for (var i=0;i<3;i++)
+	{
+		part1.v[i] = cm[i]+part2.mass/(part1.mass+part2.mass)*cr[i];
+		part2.v[i] = cm[i]-part1.mass/(part1.mass+part2.mass)*cr[i];	
+	}
+		
+}
+
+/* bins velocities into nbins between min and max */
+function computeVDF(min, max, nbins)
+{
+	/*pointers for easier access*/
+	vel = [];
+	bin = [];
+
+	/*set delta range*/
+	var delta = (max-min)/(nbins-1);
+	
+	/*shift left by half delta to center bins*/
+	min -= 0.5*delta;
+	max -= 0.5*delta;
+	
+	/*set initial values*/
+	for (var i=0;i<nbins;i++) 
+	{
+		vel[i] = i/(nbins-1);
+		bin[i] = 0;
+	}
+	
+	/*compute histogram*/
+	for (var i=0;i<part_list.length;i++)
+	{
+		var part = part_list[i];
+		var vmag = mag(part.v);
+		var b = Math.floor((vmag-min)/(delta));
+		if (b<0 || b>=nbins-1) continue;
+		bin[b]++;
+	}
+	
+	/*normalize values*/
+	var max_bin=0;
+	for (var b=0;b<nbins;b++) 
+		if (bin[b]>max_bin) max_bin=bin[b];
+	
+	for (var b=0;b<nbins;b++)
+		bin[b]/=max_bin;
+	
+	return [vel, bin];
+}
+	
+/*expose public members*/	
+return {init:init,performDSMC:performDSMC,vdf:vdf};
+})();
+
+/**** END OF DSMC CLASS *****/
+
+/*grab canvas and related properties*/
+var canvas=document.getElementById("cell");
+var ctx = canvas.getContext("2d");
+var height=canvas.height;
+var width=canvas.width;
+
+/*paint background before we scale the context*/
+var grad=ctx.createRadialGradient(0,0,width/200,0,0,width/2);
+grad.addColorStop(0,"purple");
+grad.addColorStop(1,"rgba(255,255,255,0)");
+ctx.fillStyle=grad;
+ctx.fillRect(0,0,width,height);
+
+/*create axis*/
+ctx.strokeStyle="black";
+ctx.fillStyle="purple";
+ctx.lineWidth=3;
+setLineDashSafe([10,6]);
+ctx.strokeRect(0.05*width,0.05*height,0.9*width,0.9*height);
+setLineDashSafe([]);
+	
+/*save background*/
+var saved_bk = ctx.getImageData(1, 1, width, height);
+
+/*scale to [0,1][0,1] and put origin at left/bottom to simplify graphing*/
+ctx.translate(0.05*width,0.95*height);
+ctx.scale(0.9*width,-0.9*height);
+
+/*show initial distribution*/
+dsmcCell.init();
+
+/*handler for the button click*/
+function startSim()
+{
+	dsmcCell.init();
+	dsmcCell.performDSMC();
+}	
+
+/*generates XY plot from xy[2][]*/  
+function plotXY(xy)
+{
+	var x=xy[0],y=xy[1];
+
+	/*restore background*/
+	ctx.putImageData(saved_bk, 1, 1);
+	
+	/*start plotting*/
+	ctx.beginPath();
+	ctx.moveTo(0,0);
+	for (var i=0;i<x.length;i++)
+		ctx.lineTo(x[i],y[i]);
+
+	/*return to the first point, and fill*/
+	ctx.lineTo(1,0);
+	ctx.lineTo(0,0);
+	ctx.fill();
+}
+
+/*helper function since Firefox does not seem to support setLineDash*/
+function setLineDashSafe(style)
+{
+	if (ctx.setLineDash)
+		ctx.setLineDash(style);
+}
+
+</script>
+
+<form action="" style="padding-top: 20px">
+<input type="button" value="Start the simulation!" style="font-size:1.2em;color:green;" onclick="startSim();">
+</form>

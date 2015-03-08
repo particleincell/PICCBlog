@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv='Content-Type' content='text/html;charset=utf-8'></meta>
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <title>Real Time Plotting with HMTL 5</title>
+    
+  </head>
+  <body onload="recalc()">
+    <h1>Real Time Plotting with HMTL 5!</h1>
+    <h3>Instructions</h3>
+    <ul>
+    <li>Select the function you wish to plot</li>
+    <li>Optionally select plot options</li>
+    <li>View results</li>
+    </ul>
+
+<form name="funf">
+    <fieldset> 
+	<legend>Function:</legend>
+	<input type = radio name = funr value = "x2" onclick="recalc()">y = x^2 <br />
+	<input type = radio name = funr value = "x3" onclick="recalc()">y = x^3 <br />
+	<input type = radio name = funr value = "sin" onclick="recalc()">y = sin(&pi;x)<br />
+	<input type = radio name = funr value = "cos" onclick="recalc()">y = cos(&pi;x)<br />
+    <input type = radio name = funr value = "ring" checked onclick="recalc()">y = 0.02exp(-4x)sin(10&pi;x)<br />
+	</fieldset> 
+	
+	<fieldset>
+	<legend>Options:</legend>
+	<label>Points:</label>
+	<input type = radio name = num value = "10" onclick="recalc()">10 
+	<input type = radio name = num value = "25" onclick="recalc()">25 
+	<input type = radio name = num value = "100" onclick="recalc()">100 
+	<input type = radio name = num value = "200" checked onclick="recalc()">200 
+	<input type = checkbox name = markers onclick="recalc()">Markers 
+	</fieldset>
+
+</form>
+
+
+<p> Plot, drawn in real time with HTML5! </p>
+<canvas id="plot" width="501" height="501">
+<p>Your browser doesn't support canvas.</p>
+</canvas>
+
+<script type="text/javascript"> 
+
+/*this is the main function, updates points and options*/
+function recalc() 
+{
+	var points = [];
+	
+	/*function to plot*/
+	var fun = "ring";	/*default*/
+	for (i = 0; i <document.funf.funr.length; i++) 
+	{
+		if (document.funf.funr[i].checked) 
+			fun = document.funf.funr[i].value
+	}
+	
+	/*number of points*/
+	var num = 100;	/*default*/
+	for (i = 0; i <document.funf.num.length; i++) 
+	{
+		if (document.funf.num[i].checked) 
+			num = document.funf.num[i].value
+	}
+	
+	dx = 2.0/(num-1);
+	
+	/*evaluate function*/
+	for (x=-1,i=0;i<=num;i++)
+	{
+		if (fun=="x2")
+			y=x*x;
+		else if (fun=="x3")
+			y=x*x*x;
+		else if (fun=="ring")
+			y=0.02*Math.exp(-4*x)*Math.sin(10*Math.PI*x);
+		else if (fun=="sin")
+			y = Math.sin(Math.PI*x);
+		else if (fun=="cos")
+			y = Math.cos(Math.PI*x);
+		points.push([x,y]);
+		x+=dx;
+	}
+
+	/*draw markers?*/
+	markers=false; 	/*default*/
+	if (document.funf.markers.checked)
+		markers=true;
+		
+	draw(points, markers);
+}
+
+/*this function does the actual drawing*/
+function draw(points, markers) 
+{
+	var canvas = document.getElementById('plot');
+	var i, x, y;
+	
+	if(canvas.getContext) 
+	{
+		var scale=240;
+		
+		var ctx = canvas.getContext('2d');
+		ctx.clearRect(0, 0, 501, 501);
+
+		ctx.strokeStyle = "#000000";
+		ctx.strokeRect(0, 0, 501, 501);
+		
+		// draw axis
+		ctx.lineWidth = 1;
+		ctx.strokeStyle = "#000000";
+		ctx.beginPath();
+		ctx.moveTo(250, 15);
+		ctx.lineTo(250, 485);
+		ctx.moveTo(15, 250);
+		ctx.lineTo(485, 250);
+		ctx.stroke();
+		
+		// draw points			
+		ctx.save();
+		ctx.translate(250,250);
+		ctx.scale(1.0, -1.0);
+		ctx.strokeStyle = "#FF0000";
+		ctx.lineWidth = 3;
+		ctx.beginPath();
+		
+		if(points.length > 0) 
+		{
+			x = points[0][0]*scale;
+			y = points[0][1]*scale;
+			ctx.moveTo(x, y);
+			for(i = 0; i < points.length; i += 1) 
+			{
+				x = points[i][0]*scale;
+				y = points[i][1]*scale;
+				ctx.lineTo(x, y);
+			}
+			ctx.stroke();
+			
+			if (markers)
+			{
+				ctx.fillStyle="#009900";
+				for(i = 0; i < points.length; i += 1) 
+				{
+					x = points[i][0]*scale;
+					y = points[i][1]*scale;
+					ctx.beginPath();
+					ctx.arc(x, y, 5, 0, 2*Math.PI, false);
+					ctx.fill();
+					ctx.stroke();
+				}
+			}
+		}
+		ctx.restore();
+		
+		// add text, needs to be last to overlap graph
+		ctx.font = 'italic 20px sans-serif';
+		ctx.textBaseline = 'top';
+		ctx.fillText('y(m)', 240, 0);
+		ctx.fillText('x(m)', 460, 225);
+	}
+}
+
+</script>
+
+
+
+  </body>
+
+</html>
+
+ 

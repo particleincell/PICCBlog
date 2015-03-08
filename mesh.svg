@@ -1,0 +1,585 @@
+<svg xmlns="http://www.w3.org/2000/svg" 
+xmlns:xlink="http://www.w3.org/1999/xlink" onload="init();">
+<script>
+<![CDATA[
+/* elliptic-mesh.js
+ *
+ * generates a structured mesh bounded by four splines by
+ * solving the elliptic Laplace equation
+ *
+ * For more info see:
+ * http://www.particleincell.com/2012/online-meshing-example/
+ * http://www.particleincell.com/2012/bezier-splines/ 
+ *
+ * Lubos Brieda, Particle In Cell Consulting LLC, 2012
+ * you may freely use this algorithm in your codes but whenever possible
+ * please include a link/reference to the source article
+ */ 
+
+/*global variables*/
+var svg=document.documentElement /*svg object*/
+var spline=new Array() /*splines*/
+var knot=new Array() /*vertices*/
+var C 		/*current object*/
+var x0,y0	/*svg offset*/
+var gx=new Array(); 	/*grid x positions*/
+var gy=new Array(); 	/*grid y positions*/
+var gh = new Array();	/*horizontal gridline*/	
+var gv = new Array();	/*vertical gridline*/
+var ni=15;		/*number of nodes in i direction*/
+var nj=15;		/*number of nodes in j direction*/
+
+/*called on loading, dynamically creates the SVG elements*/
+function init()
+{
+	/*boundary splines*/
+	var path=new Array();
+	path[0] = createPath("green");
+	path[1] = createPath("red");
+	path[2] = createPath("green");
+	path[3] = createPath("red");
+
+	/*gridlines*/
+	for (i=0;i<ni;i++)
+		gv[i] = createPath("black","2");
+	for (j=0;j<nj;j++)
+		gh[j] = createPath("black","2");
+			
+	/*control points, added last to be on top*/
+	knot[0] = createKnot(120,200);
+	knot[1] = createKnot(120,300);
+	knot[2] = createKnot(300,300);
+	knot[3] = createKnot(300,400);
+	knot[4] = createKnot(500,350);
+	knot[5] = createKnot(500,150);
+	knot[6] = createKnot(300,100);
+	knot[7] = createKnot(300,200);
+
+	/*spline objects, hold the spline definition*/
+	spline[0] = new Spline(path[0],false,[knot[0],knot[1]]);
+	spline[1] = new Spline(path[1],false,[knot[1],knot[2],knot[3]]);
+	spline[2] = new Spline(path[2],true,[knot[3],knot[4],knot[5],knot[6]]);
+	spline[3] = new Spline(path[3],false,[knot[6],knot[7],knot[0]]);
+
+	/*initialize mesh, mesh is stored as 1D array with u=j*nx+i indexing*/
+	for (u=ni*nj-1;u>=0;u--)
+	{
+		gx[u]=0
+		gy[u]=0
+	}
+	
+	/*recalculate boundary splines and gridlines*/
+	updateBoundaries();
+	updateMesh();
+}
+
+/*recomputes gridlines*/
+function updateMesh()
+{ 
+	/*left boundary*/
+	 var t=splitSpline(spline[0],nj,true);
+	 for (j=0;j<nj;j++)
+	 {
+		u=j*ni;
+		pos = evalPos(spline[0],t[j]);
+		gx[u]=pos.x;
+		gy[u]=pos.y;
+	 }
+	
+	/*right boundary*/
+	var t=splitSpline(spline[2],nj);
+	for (j=0;j<nj;j++)
+	 {
+		u=j*ni+ni-1;
+		pos = evalPos(spline[2],t[j]);
+		gx[u]=pos.x;
+		gy[u]=pos.y;
+	 }
+				
+	/*bottom*/
+	var t=splitSpline(spline[1],ni);
+	 for (i=0;i<ni;i++)	
+	{
+		u=i;
+		pos = evalPos(spline[1],t[i]);
+		gx[u]=pos.x;
+		gy[u]=pos.y;
+	 }
+	
+	 /*top*/
+	 var t=splitSpline(spline[3],ni,true);
+	for (i=0;i<ni;i++)
+	{
+		u=(nj-1)*ni+i;
+		pos = evalPos(spline[3],t[i]);
+		gx[u]=pos.x;
+		gy[u]=pos.y;
+	 }
+
+	/*initial guess - straight lines*/
+	for (j=1;j<nj-1;j++)
+		for (i=1;i<ni-1;i++)
+		{
+			u=j*ni+i;
+			gx[u] = gx[j*ni]+i/(ni-1)*(gx[j*ni+ni-1]-gx[i])
+			gy[u] = gy[i]+j/(nj-1)*(gy[(nj-1)*ni+i]-gy[i]);
+		}
+	
+	/*call the solver*/
+	EllipticSolver()
+	
+	/*now update the gridlines, horizontal first*/
+	for (j=0;j<nj;j++)
+	{
+		x = new Array()
+		y = new Array();
+		for (i=0;i<ni;i++)
+		{
+			u=j*ni+i;
+			x[i] = gx[u]
+			y[i] = gy[u]
+		}
+		
+		updateGridLine(gh[j],x,y);
+	 }
+	 
+	 /*vertical gridlines*/
+	 for (i=0;i<ni;i++)
+	 {
+		x = new Array()
+		y = new Array();
+		for (j=0;j<nj;j++)
+		{
+			u=j*ni+i;
+			x[j] = gx[u]
+			y[j] = gy[u]
+		}
+		updateGridLine(gv[i],x,y);
+	 }	
+}
+
+/*solves \lambda^2 X=0, this does not enforce that grid lines stay
+inside the boudnaries*/
+function SimpleSolver()
+{
+	var it,j,i,u;
+	for (it=0;it<20;it++)
+	{
+		for (j=1;j<nj-1;j++)
+			for (i=1;i<ni-1;i++)
+			{
+				u=j*ni+i;
+				gx[u] = 0.25*(gx[u-1]+gx[u+1]+gx[u-ni]+gx[u+ni]);
+				gy[u] = 0.25*(gy[u-1]+gy[u+1]+gy[u-ni]+gy[u+ni]);
+			}
+	}	
+}
+
+/*elliptic solver, bases on implementation in
+http://perso.uclouvain.be/vincent.legat/teaching/documents/meca2170-jfr-cours4.pdf*/
+function EllipticSolver()
+{
+	var alpha,beta,gamma;
+	var it,j,i,u
+	
+	/*hardcoded for 50 iterations, seems to be sufficient
+	  better option would be to add a convergence check*/	
+	for (it=0;it<50;it++)
+	{
+		/*loop only over internal nodes*/
+		for (j=1;j<nj-1;j++)
+			for (i=1;i<ni-1;i++)
+			{
+				u=j*ni+i;
+				alpha = ((gx[u+ni]-gx[u-ni])*(gx[u+ni]-gx[u-ni]) + 
+						 (gy[u+ni]-gy[u-ni])*(gy[u+ni]-gy[u-ni]))/4;
+				gamma = ((gx[u+1]-gx[u-1])*(gx[u+1]-gx[u-1])+
+                         (gy[u+1]-gy[u-1])*(gy[u+1]-gy[u-1]))/4;
+				beta =  ((gx[u+1]-gx[u-1])*(gx[u+ni]-gx[u-ni]))/16+
+				        ((gy[u+1]-gy[u-1])*(gy[u+ni]-gy[u-ni]))/16; 
+						
+						
+				gx[u] = (alpha*(gx[u+1]+gx[u-1])+gamma*(gx[u+ni]+gx[u-ni])-
+				         2*beta*(gx[u+ni+1]-gx[u-1+ni]-gx[u+1-ni]+gx[u-1-ni]))/(2*(alpha+gamma))
+						 
+				gy[u] = (alpha*(gy[u+1]+gy[u-1])+gamma*(gy[u+ni]+gy[u-ni])-
+				         2*beta*(gy[u+ni+1]-gy[u-1+ni]-gy[u+1-ni]+gy[u-1-ni]))/(2*(alpha+gamma))
+			}
+	}	
+}
+
+/*this function returns an array of parametric position [0,1] that split
+a multisegment spline into nn-1 segments. The function enforces segments
+starting at each control point (assuming nn > num_points). Node spacing will
+be only approximately uniform, since segments must pass through the control points.*/
+function splitSpline(spline, nn, reverse)
+{
+	reverse = (typeof reverse == 'undefined' ? false : reverse);
+	var t=[];
+	
+	var i=0,accum=0,s;
+	var ns=spline.seg_length.length;
+	
+	/*set number of divisions for each segment*/
+	var tot=0;
+	var divs = [];
+	var dt=[];
+	for (s=0;s<ns;s++)
+	{
+		divs[s] = Math.round((nn-1)*spline.seg_length[s]);
+		dt[s]=spline.seg_length[s]/divs[s];
+		tot+=divs[s];
+	}
+	
+	/*we may have leftover segments, assign these to the segments with
+	  largest deltas*/
+	while(tot<nn-1)
+	{
+		var dt_max=-1,max_s=0;
+		for (s=0;s<ns;s++)
+			if (dt[s]>dt_max) {dt_max=dt[s];max_s=s;}
+		divs[max_s]++;
+		dt[max_s]=spline.seg_length[max_s]/divs[max_s];
+		tot++;
+	}
+	
+	/*split each segment into the precomputed number of divisions*/
+	for (s=0,i=0;s<ns;s++)
+	{
+		/*add start*/
+		t[i++]=accum
+		
+		var dt=spline.seg_length[s]/divs[s]
+		for (var k=1;k<divs[s];k++)
+			t[i++]=accum+dt*k;
+	
+		accum+=spline.seg_length[s]
+	}
+	t[nn-1]=1;
+	
+	/*flip if reverse*/
+	if (reverse)
+	{
+		var tr=[];
+		for (i=0;i<nn;i++)
+			tr[nn-i-1]=t[i];
+		return tr;
+	}
+	return t;
+}
+
+/*creates and adds an SVG circle to represent knots*/
+function createKnot(x,y)
+{
+	var C=document.createElementNS("http://www.w3.org/2000/svg","circle")
+	C.setAttributeNS(null,"r",15)
+	C.setAttributeNS(null,"cx",x)
+	C.setAttributeNS(null,"cy",y)
+	C.setAttributeNS(null,"fill","gold")
+	C.setAttributeNS(null,"stroke","black")
+	C.setAttributeNS(null,"stroke-width","6")
+	C.setAttributeNS(null,"onmousedown","startMove(evt)")
+	svg.appendChild(C)	
+	return C
+}
+
+/*creates and adds an SVG path without defining the nodes*/
+function createPath(color,width)
+{		
+	width = (typeof width == 'undefined' ? "6" : width);
+	var P=document.createElementNS("http://www.w3.org/2000/svg","path")
+	P.setAttributeNS(null,"fill","none")
+	P.setAttributeNS(null,"stroke",color)
+	P.setAttributeNS(null,"stroke-width",width)
+	svg.appendChild(P)
+	return P
+}
+
+/*Javascript "structure" to hold spline definition*/
+function Spline(path,smooth,K)
+{
+	this.path = path;
+	this.smooth = smooth;
+	this.K = K;
+	this.seg_length=new Array();
+	this.x = new Array();
+	this.y = new Array();	
+}
+
+/*updates path definitions*/
+function updateBoundaries()
+{
+	for (var i=0;i<spline.length;i++)
+	{
+		var s=spline[i];
+		if (s.smooth==true) updateBezierSpline(s);
+		else updateLinearSpline(s);
+	}
+}
+
+/*updates path definition for a linear spline, also
+computes segment lengths*/
+function updateLinearSpline(spline)
+{
+	var path = spline.path;
+	var K = spline.K;
+	
+	/*create trace*/
+	for (var i=0;i<K.length;i++)
+	{
+		/*use parseInt to convert string to int*/
+		spline.x[i]=parseInt(K[i].getAttributeNS(null,"cx"))
+		spline.y[i]=parseInt(K[i].getAttributeNS(null,"cy"))
+	}
+
+	x=spline.x;
+	y=spline.y;
+	
+	trace = "M "+x[0]+","+y[0]+" L";
+	for (var i=1;i<x.length;i++)
+		trace+=" "+x[i]+","+y[i];
+	path.setAttributeNS(null,"d",trace)
+	
+	/*compute segment lengths*/
+	var tot=0;
+	for (var i=0;i<x.length-1;i++)
+	{
+		spline.seg_length[i]=Math.sqrt((x[i+1]-x[i])*(x[i+1]-x[i]) + 
+									   (y[i+1]-y[i])*(y[i+1]-y[i]))
+		tot+=spline.seg_length[i];
+	}
+	/*normalize*/
+	for (i=0;i<x.length-1;i++) spline.seg_length[i]/=tot;
+}
+
+/*updates path definition for a linear spline, also
+computes bezier curve segment lengths using algorithm from
+from http://processingjs.nihongoresources.com/bezierinfo/#intoffsets_c*/
+function updateBezierSpline(spline)
+{
+	var path = spline.path;
+	var K = spline.K;
+	
+	/*create trace*/
+	for (i=0;i<K.length;i++)
+	{
+		/*use parseInt to convert string to int*/
+		spline.x[i]=parseInt(K[i].getAttributeNS(null,"cx"))
+		spline.y[i]=parseInt(K[i].getAttributeNS(null,"cy"))
+	}
+
+	x=spline.x
+	y=spline.y
+	
+	/*computes control points p1 and p2 for x and y direction*/
+	spline.px = computeControlPoints(x);
+	spline.py = computeControlPoints(y);
+	
+	px=spline.px;
+	py=spline.py;
+	trace = "M "+x[0]+","+y[0]+" C";
+	for (i=0;i<x.length-1;i++)
+		trace+=" "+px.p1[i]+","+py.p1[i]+
+			   " "+px.p2[i]+","+py.p2[i]+
+			   " "+x[i+1]+","+y[i+1]
+	path.setAttributeNS(null,"d",trace)
+	
+	/*compute segment lengths*/	
+	/*table for quassian quadrature of order 4*/
+	gw = [0.6521451548625461,0.6521451548625461,0.3478548451374538,0.3478548451374538]
+	gx = [-0.3399810435848563,0.3399810435848563,-0.8611363115940526,0.8611363115940526]
+
+	var tot=0;
+	for (var i=0;i<x.length-1;i++)
+	{
+		sum=0;
+		/*gaussian quadrature*/
+		for (var j=0;j<4;j++)
+		{
+			var t = 0.5*(gx[j]+1);
+			var bx = base3(t,x[i],px.p1[i],px.p2[i],x[i+1]);
+			var by = base3(t,y[i],py.p1[i],py.p2[i],y[i+1]);
+			var ft = Math.sqrt(bx*bx+by*by);
+			sum+=gw[j]*ft;
+		}
+		spline.seg_length[i]=0.5*sum;
+		
+		tot+=spline.seg_length[i];
+	}
+	/*normalize*/
+	for (i=0;i<x.length-1;i++) spline.seg_length[i]/=tot;
+}
+
+/*from http://processingjs.nihongoresources.com/bezierinfo/#intoffsets_c*/
+function base3(t,p1,p2,p3,p4)
+{
+	return t*(t*(-3*p1+9*p2-9*p3+3*p4)+6*p1-12*p2+6*p3)-3*p1+3*p2
+}
+
+/*updates a path given an array of positions instead of SVG elements*/
+function updateGridLine(spline, x,y)
+{
+	var trace = "M "+x[0]+","+y[0]+" L";
+	for (var i=1;i<x.length;i++)
+		trace+=" "+x[i]+","+y[i];
+	spline.setAttributeNS(null,"d",trace)
+}
+
+/*returns (x,y) position along a multi-segment spline given
+parametric position t=[0,1]*/
+function evalPos(spline, t)
+{		
+	/*find the segment*/
+	var accum=0;
+	var i=0;
+	
+	if (t<1)
+	{
+		while (t>(accum+spline.seg_length[i]))
+		{
+			accum+=spline.seg_length[i];
+			i++;
+		}
+		
+		/*renormalize local distance, division by zero risk here*/
+		t = (t-accum)/spline.seg_length[i]
+	}
+	else
+	{
+		i = spline.seg_length.length-1;
+		t=1;
+	}
+		
+	var x,y
+	if (spline.smooth==false)
+	{
+		x=spline.x[i]+t*(spline.x[i+1]-spline.x[i]);
+		y=spline.y[i]+t*(spline.y[i+1]-spline.y[i]);
+	}
+	else
+	{
+		var a=(1-t)*(1-t)*(1-t);
+		var d=t*t*t;
+		var b=3*(t-2*t*t+d);
+		var c=3*(t*t-d);
+		
+		x=a*spline.x[i]+b*spline.px.p1[i]+c*spline.px.p2[i]+d*spline.x[i+1];
+		y=a*spline.y[i]+b*spline.py.p1[i]+c*spline.py.p2[i]+d*spline.y[i+1];		
+	}
+	return {x:x,y:y}
+}
+
+/*called when user starts dragging a circle, from
+http://www.w3.org/Graphics/SVG/IG/resources/svgprimer.html*/
+function startMove(evt)
+{
+	/*SVG positions are relative to the element but mouse 
+	  positions are relative to the window, get offset*/
+	x0 = getOffset(svg).left; 
+	y0 = getOffset(svg).top; 
+	
+	C=evt.target
+	svg.setAttribute("onmousemove","move(evt)")
+	svg.setAttribute("onmouseup","drop()")	
+}
+
+/*called on mouse move, updates dragged circle position and recomputes splines*/
+function move(evt)
+{
+	x = evt.clientX-x0;
+	y = evt.clientY-y0;
+	
+	/*move the current handle*/
+	C.setAttributeNS(null,"cx",x)
+	C.setAttributeNS(null,"cy",y)
+	
+	/*update boundaries and the mesh*/
+	updateBoundaries();
+	updateMesh();
+}
+
+/*called on mouse up event*/
+function drop()
+{
+	svg  = document.getElementsByTagName('svg')[0];
+	svg.setAttributeNS(null, "onmousemove",null)
+}
+	
+/*creates formated path string for SVG cubic path element*/
+function path(x1,y1,px1,py1,px2,py2,x2,y2)
+{
+	return "M "+x1+" "+y1+" C "+px1+" "+py1+" "+px2+" "+py2+" "+x2+" "+y2;
+}
+
+/*computes control points given knots K, code from
+ http://www.particleincell.com/2012/bezier-splines/ */
+function computeControlPoints(K)
+{
+	p1=new Array();
+	p2=new Array();
+	n = K.length-1;
+	
+	/*rhs vector*/
+	a=new Array();
+	b=new Array();
+	c=new Array();
+	r=new Array();
+	
+	/*left most segment*/
+	a[0]=0;
+	b[0]=2;
+	c[0]=1;
+	r[0] = K[0]+2*K[1];
+	
+	/*internal segments*/
+	for (i = 1; i < n - 1; i++)
+	{
+		a[i]=1;
+		b[i]=4;
+		c[i]=1;
+		r[i] = 4 * K[i] + 2 * K[i+1];
+	}
+			
+	/*right segment*/
+	a[n-1]=2;
+	b[n-1]=7;
+	c[n-1]=0;
+	r[n-1] = 8*K[n-1]+K[n];
+	
+	/*solves Ax=b with the Thomas algorithm (from Wikipedia)*/
+	for (i = 1; i < n; i++)
+	{
+		m = a[i]/b[i-1];
+		b[i] = b[i] - m * c[i - 1];
+		r[i] = r[i] - m*r[i-1];
+	}
+ 
+	p1[n-1] = r[n-1]/b[n-1];
+	for (i = n - 2; i >= 0; --i)
+		p1[i] = (r[i] - c[i] * p1[i+1]) / b[i];
+		
+	/*we have p1, now compute p2*/
+	for (i=0;i<n-1;i++)
+		p2[i]=2*K[i+1]-p1[i+1];
+	
+	p2[n-1]=0.5*(K[n]+p1[n-1]);
+	
+	return {p1:p1, p2:p2};
+}
+
+/* returns window offset of an element
+code from http://stackoverflow.com/questions/442404/dynamically-retrieve-html-element-x-y-position-with-javascript*/
+function getOffset( el ) 
+{
+    var _x = 0;
+    var _y = 0;
+    while( el && !isNaN( el.offsetLeft ) && !isNaN( el.offsetTop ) ) {
+        _x += el.offsetLeft - el.scrollLeft;
+        _y += el.offsetTop - el.scrollTop;
+        el = el.offsetParent;
+    }
+    return { top: _y, left: _x };
+}
+]]>
+</script>
+</svg>
