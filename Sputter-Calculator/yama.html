@@ -1,0 +1,476 @@
+<!--
+Sputter calculator and plotting program based on 
+<tt>Yamamura, Y., Itikawa, Y., and Itoh, N., "Angular dependence of sputtering yields of monatomic solids", <i>Institute of Plasma Physics Report</i>, IPPJ-AM-26, 1983</tt> </p>
+
+For more information, see https://www.particleincell.com/blog/2015/sputter-calculator/
+-->
+
+<html>
+<head>
+ <meta charset="UTF-8"> 
+<style>
+table{font-family: monospace;font-size: 1em;border-collapse: collapse;}
+table,td,th {border:1px solid gray;padding:0.1em 0.2em;}
+input:not([type="button"]), select{padding:0;margin:0;width: 4em;
+       color:#004;font-weight:bold;border:none;background-color:#FEF;}
+th{background-color:blue; color: white;}
+div{display:inline-block;
+vertical-align:top;}
+h2,h3{text-shadow: 2px 2px #eee;margin:0.5em 0 0;}
+h2{font-size:1.2em;}
+h3{font-size:1.0em;}
+p{margin:0.5em 0;}
+.note{font-size:0.8em;color:gray;}
+</style>
+    
+</head>
+<body>
+<h2>Sputter Calculator</h2>
+<p>Based on  <tt>Yamamura, Y., Itikawa, Y., and Itoh, N., "Angular dependence of sputtering yields of monatomic solids", <i>Institute of Plasma Physics Report</i>, IPPJ-AM-26, 1983</tt> </p>
+
+<div>
+<form>
+<table id="inputs">
+<tr><th colspan="3">Inputs</th></tr>
+<tr><th>Symbol</th><th>Value</th><th>Meaning</th>
+</table>
+<input type="button" id="sub" value="Replot">
+</form>
+</div>
+
+<div>
+<!--
+<table id="results">
+<tr><th colspan="3">Results</th></tr>
+<tr><th>Symbol</th><th>Value</th><th>Meaning</th>
+</table>
+-->
+</div>
+
+<h2>Sputter plots</h2>
+<div>
+<canvas id="yield_plot" width="400" height="350">Your browser does not support Canvas</canvas>
+<canvas id="angular_plot" width="350" height="350">Your browser does not support Canvas</canvas>
+</div> 
+
+<script>
+/*functions for grabbing user inputs and setting results*/
+function set(id,value){document.getElementById(id).innerHTML=value.toFixed(2);}
+function sete(id,value){document.getElementById(id).innerHTML=value.toExponential(2);}
+function get(id){return Number((document.getElementById(id).value).replace(',',''));}
+
+var yama = new Yama();
+
+var materials = {};
+/*add material data*/
+function add_mat(name,M,Z,Us,R0,Q)
+{
+    var mat ={name,M,Z,Us,R0,Q};
+	materials[name]=mat;
+}
+/*adds a row to the inputs table*/
+function inp_row(cell1, cell2, cell3)
+{
+	var res = document.getElementById("inputs");
+	var row = res.insertRow(-1);
+	(row.insertCell(0)).innerHTML=cell1;
+	(row.insertCell(1)).innerHTML="<input id=\""+cell1+"\" value=\""+cell2+"\" onchange=\"recalculate()\"/>";
+	(row.insertCell(2)).innerHTML=cell3;
+}
+
+function inp_mat(cell1, cell2, cell3)
+{
+	var res = document.getElementById("inputs");
+	var row = res.insertRow(-1);
+	(row.insertCell(0)).innerHTML=cell1;
+	(row.insertCell(1)).innerHTML="<select id=\""+cell1+"\" onchange=\"recalculate()\"/>";
+	(row.insertCell(2)).innerHTML=cell3;
+	
+	/*add options*/
+	select = document.getElementById(cell1);
+
+	for (var mat_name in materials)
+	{
+		var mat = materials[mat_name];
+		var opt = document.createElement('option');
+		opt.value = mat.name;
+		opt.innerHTML = mat.name;
+		if (mat.name == cell2) opt.selected=true;
+		select.appendChild(opt);
+	}
+}
+
+/*adds a row to the results table*/
+function res_row(cell1, cell3)
+{
+	var res = document.getElementById("results");
+	var row = res.insertRow(-1);
+	(row.insertCell(0)).innerHTML=cell1;
+	var c2=row.insertCell(1);c2.innerHTML="";c2.id = cell1;
+	(row.insertCell(2)).innerHTML=cell3;
+}
+
+/*generates normal sputter yield plot for a given energy range*/
+function yield_plot(E_min, E_max) {
+    var x=[];
+    var y=[[]];
+	
+	var E_delta= (E_max-E_min)/200;
+    var y_max=0;
+    for (var E=E_min;E<=E_max;E+=E_delta)
+    {
+		var Y = yama.normal_yield(E);
+		if (Y>y_max) y_max=Y;
+            
+		x.push(E);	        
+		y[0].push(Y);        
+    }
+    
+	var x_min=x[0];
+	var x_max=x[x.length-1];
+	var dx = (x_max-x_min)/(5);
+	y_max *=1.2;
+	var dy = (y_max-0)/6;
+    xdata = [x_min,x_max,dx,"Energy (eV)"];
+    ydata = [0,y_max,dy,"Normal Yield"];
+    legend = ["Normal Yield"];
+	plot("yield_plot",x,y,xdata,ydata,legend);
+}
+
+/*generates angular sputter yield plot*/
+function angular_plot(E) {
+    var th=[];
+    var r=[[]];
+	
+	var r_max=0;
+	for (var theta=-0.5*Math.PI;theta<=0.5*Math.PI;theta+=2*Math.PI/180)
+    {
+		var Y = yama.angular_yield(theta,E);
+            
+		th.push(theta*180/Math.PI);	        
+		r[0].push(Y);        
+		if (Y>r_max) r_max=Y;
+    }
+   
+	r_max *=1.2;
+	if (r_max==0) r_max=1;
+	var dr = r_max/5;
+    var theta_data = [-90,90,30,"Incident Angle"];
+    var r_data = [0,r_max,dr,"Angular Yield"];
+    legend = ["Y(theta)/Y(0)"];
+	plot("angular_plot",th,r,theta_data,r_data,legend);
+}
+
+/*class definition*/
+function Yama() {
+    
+	var t=this;
+	var first=true;
+	/*sets local variables to correspond to user inputs*/
+	Yama.prototype.update = function() {
+		var mat1_name = document.getElementById('Source').value;
+		var mat1 = materials[mat1_name];
+		
+		var mat2_name = document.getElementById('Target').value;
+		var mat2 = materials[mat2_name];
+	
+		t.Z1 = mat1.Z;
+		t.Z2 = mat2.Z;
+		t.M1 = mat1.M;
+		t.M2 = mat2.M;
+		t.Q = mat2.Q;
+		t.Us = mat2.Us;	
+		t.R0 = mat2.R0;
+		
+		t.fs = get("fs");
+	};
+    
+    /*sets values in the results table*/
+    Yama.prototype.set_results = function() {
+        set("u",t.u);
+    };
+    
+	/**/
+    Yama.prototype.normal_yield = function(E) {
+		var Z1 = t.Z1;
+		var Z2 = t.Z2;
+		var M1 = t.M1;
+		var M2 = t.M2;
+		var Q = t.Q;
+		var Us = t.Us;
+							
+		var eps = 0.03255/
+				(Z1*Z2*Math.sqrt(Math.pow(Z1,2.0/3.0)+Math.pow(Z2, 2.0/3.0)))*
+				M2/(M1+M2)*
+				E;
+		
+		var sn = 3.441*Math.sqrt(eps)*Math.log(eps+2.718)/
+				(1+6.355*Math.sqrt(eps) + eps*(-1.708+6.882*Math.sqrt(eps)));
+		
+		var se = 0.079*
+				Math.pow(M1+M2, 1.5)/(Math.pow(M1, 1.5)*Math.sqrt(M2))*
+				Math.pow(Z1, 2.0/3.0)*Math.sqrt(Z2)/Math.pow(Math.pow(Z1, 2.0/3.0)+Math.pow(Z2,2.0/3.0),3.0/4.0)*
+				Math.sqrt(eps);
+		
+		var K = 8.478*Z1*Z2/Math.sqrt(Math.pow(Z1, 2.0/3.0)+Math.pow(Z2, 2.0/3.0))*
+				M1/(M1+M2);
+		
+		var alpha = 0.08+0.164*Math.pow(M2/M1, 0.4)+
+				0.0145*Math.pow(M2/M1,1.29);
+		
+		var Eth = Us*(1.9 + 3.8/(M2/M1) + 0.134*Math.pow(M2/M1,1.24));
+		
+		var Y = 0.42*alpha*Q*K*sn/(Us*(1+0.35*Us*se))*
+				Math.pow(1-Math.sqrt(Eth/E),2.8);
+		
+		return Y;
+	};
+	
+	/*returns angular yield*/
+	Yama.prototype.angular_yield = function(theta, E) {
+	
+	var Z1 = t.Z1;
+	var Z2 = t.Z2;
+	var M1 = t.M1;
+	var M2 = t.M2;
+	var Q = t.Q;
+	var Us = t.Us;
+	var R0 = t.R0;
+	var fs = t.fs;
+		
+	var Y0 = 1;	/*normalized*/
+	
+	var gamma = 4*M1*M2/((M1+M2)*(M1+M2));
+	var a = 0.4685*Math.sqrt(1/(Math.pow(Z1,2/3)+Math.pow(Z2,2/3)));
+		
+	if (false) {
+		/*light ion sputtering*/
+		var e=2.718;		/*not sure about this!*/
+		var f = Math.sqrt(Us)*(0.94*1.33e-3*(M2/M1));
+		var EL = (M1+M2)/(M2)*(Z1*Z2*e*e)/a;
+		
+		var eps = E/EL;	
+		var eta = 1/R0*Math.sqrt(1/(2*eps*q));
+		
+		var sigma_opt = (90-57.3*eta)*Math.PI/180;
+	}
+	else
+	{
+		/*heavy ion sputtering*/
+		var h;
+		if (M2>M1) h=0.834; else h=0.18;
+		var E_th = 1.5*Us/gamma*Math.pow((1+1.38*Math.pow(M1/M2,h)),2);
+		if (E<=E_th) return 0;
+		var zeta = 1- Math.sqrt(E_th/E);
+		var f = fs*(1+2.5*(1-zeta)/zeta);
+		if (f>15) f=15;
+		var psi0 = Math.pow(a/R0,1.5)*Math.sqrt((Z1*Z2) / (Math.sqrt(Math.pow(Z1,2/3)+Math.pow(Z2,2/3))));
+		var psi = psi0/Math.sqrt(E);
+		var sigma_opt = (90-286.0*Math.pow(psi,0.45))*Math.PI/180;	
+	}
+	var sigma = f*Math.cos(sigma_opt);
+	var x = 1/Math.cos(theta);
+	var Y = Y0*Math.pow(x,f)*Math.exp(-sigma*(x-1));
+	return Y;	
+	}
+};
+
+	/** recomputes values, this function is called on user input change*/
+    function recalculate() {
+    
+	/*grab data from inputs table*/
+	
+	/*perform computation*/
+    yama.update();
+    
+	var E_min = get("E_min");
+	var E_max = get("E_max");
+	var E_ang = get("E_ang");
+	
+	if (E_min<0) E_min=0;
+	if (E_max<E_min) E_max=E_min+1000;
+	
+    /*make plots*/
+	yield_plot(E_min,E_max);
+	angular_plot(E_ang);
+	};
+
+
+function init()
+{
+	/*data from Yamamura 1983*/
+	add_mat('N',14.01,7,4.92,2.83,1);
+	add_mat('Al',26.98,13,3.39,2.56,1.1);
+	add_mat('Cu',63.55,29,3.49,2.28,1.33);
+	add_mat('Ag',107.8,47,2.95,2.58,1.13);
+	add_mat('Xe',131.3,54,0.16,3.87,1);
+	add_mat('Ar',39.93,18,0.08,3.35,1);
+
+	/*build inputs table*/
+	inp_mat("Source","Ar","Source Material");
+	inp_mat("Target","Cu","Target Material"); 
+	inp_row("fs",1.71, "(-) Sigmund f");
+	inp_row("E_min",0,"(eV) Min. Energy");
+	inp_row("E_max",10000,"(eV) Max. Energy");
+	inp_row("E_ang",1000,"(eV) Energy for ang. plot");
+
+	/*build results table*/
+//	res_row("T02","(K) Compressor Inlet Temperature");
+//	res_row("p02","(Pa) Compressor Inlet Pressure");
+//	res_row("T03","(K) Compressor Outlet Temperature");
+
+}
+
+init();
+document.getElementById("sub").onclick=function(){recalculate()};
+document.getElementById("sub").click();
+
+/*************************************************************************************/
+
+/*functions for plotting*/
+var	xmin,ymin,dx,dy,p,w,h;		/*global variables used by getX,getY*/
+
+/* functions to convert values to screen coordinates
+ * adding 0.5 per http://stackoverflow.com/questions/9311428/draw-single-pixel-line-in-html5-canvas*/
+function getX(x) {return Math.floor(p+(x-xmin)*dx)+0.5;}
+function getY(y) {return Math.floor(h-p-((y-ymin)*dy))+0.5;} 
+
+
+ /*generates an x-y plot in canvas id. Supports multiple Y graphs
+ * format for [x/y]data is [0],[1] = axis min/max, [2]=spacing, [3]=axis title*/
+function plot(id,X,Y,xdata,ydata,legend)
+{
+	var c = document.getElementById(id);
+	var ctx = c.getContext("2d");
+	var color = ["#800","#080","#008"];
+
+    if (!ctx.setLineDash) {
+    ctx.setLineDash = function () {}}
+
+	p = 20;   /*padding*/
+	w = c.width;
+	h = c.height;
+  
+	/*axis*/
+	ctx.lineWidth=2;
+
+	ctx.strokeStyle="#000";
+	ctx.fillStyle="#FFF";
+	ctx.fillRect(0,0,w,h);
+	ctx.fillStyle="#000";  
+	ctx.strokeRect(p,p,w-2*p,h-2*p);
+  
+	xmin = xdata[0];
+	ymin = ydata[0];
+	dx = (w-2*p)/(xdata[1]-xdata[0]);
+	dy = (h-2*p)/(ydata[1]-ydata[0]);
+  
+	/*set precision for axis labels*/
+	xprec=Math.max(0,Math.floor(-Math.log((xdata[1]-xdata[0])/100)/Math.log(10)));
+	yprec=Math.max(0,Math.floor(-Math.log((ydata[1]-ydata[0])/100)/Math.log(10)));
+	if (xdata[1]<1) xprec--;	/*because toFixed really means the number of digits after period*/
+	if (ydata[1]<1) yprec--;
+    
+	/*gridlines*/
+	ctx.lineWidth=1;
+	//ctx.setLineDash([1,2]);
+	ctx.strokeStyle="#888";
+	ctx.textBaseline = 'top';
+	ctx.fillStyle = "#888";
+	ctx.font = "10pt monospace";
+	for (var x=xdata[0];x<=xdata[1];x+=xdata[2])
+	{
+		ctx.beginPath();
+		ctx.moveTo(getX(x),p);
+		ctx.lineTo(getX(x),h-p);
+		ctx.stroke(); 
+      
+		/*add labels*/
+		var label = x.toFixed(xprec);
+		var tw = ctx.measureText(label).width;
+		ctx.fillText(label,getX(x)-0.5*tw,h-p);   
+	}
+  
+	/*x-axis title*/
+	var tw = ctx.measureText(xdata[3]).width;
+	ctx.fillText(xdata[3],0.5*(w-tw),0);
+   
+	ctx.textBaseline="bottom";
+	for (var y=ydata[0];y<=ydata[1];y+=ydata[2])
+	{
+		ctx.beginPath();
+		ctx.moveTo(p,getY(y));
+		ctx.lineTo(w-p,getY(y));
+		ctx.stroke();    
+      
+		/*add labels*/
+		var label = y.toFixed(yprec);
+		var tw = ctx.measureText(label).width;
+		var x1=p;
+		var y1=getY(y)+0.5*tw;
+		var angle=-Math.PI/2;
+      
+		ctx.translate(x1,y1);
+		ctx.rotate(angle);
+		ctx.fillText(label,0,0);
+		ctx.rotate(-angle);
+		ctx.translate(-x1,-y1);
+	}
+
+	/*y-axis title*/
+	var tw=ctx.measureText(ydata[3]).width;
+	var x1=w;
+	var y1=0.5*(h+tw);
+	var angle=-Math.PI/2;
+	ctx.translate(x1,y1);
+    ctx.rotate(angle);
+    ctx.fillText(ydata[3],0,0);
+    ctx.rotate(-angle);
+    ctx.translate(-x1,-y1);
+ 
+	/*plot data*/
+	for (var j=0;j<Y.length;j++)
+	{
+		ctx.strokeStyle=color[j%color.length];
+		ctx.lineWidth=1+Math.floor(j/(color.length));
+		
+		ctx.beginPath();
+		ctx.moveTo(getX(X[0]),getY(Y[j][0]));
+		for (var i=1;i<X.length;i++)
+			ctx.lineTo(getX(X[i]),getY(Y[j][i]));
+		
+		ctx.stroke();
+	}
+  
+	/*legend*/
+	var tw = 0;
+	for (var j=0;j<Y.length;j++) tw = Math.max(tw,ctx.measureText(legend[j]).width);
+	var x1=p+10.5;
+	var y1=p+10.5;
+	var a=tw+10;
+	var b=Y.length*15+7;
+	ctx.lineWidth=1;
+	ctx.strokeStyle="black";
+	ctx.fillStyle="rgba(255,255,255,0.7)";
+	ctx.textBaseline="top";
+	ctx.fillRect(x1,y1,a,b);
+	ctx.strokeRect(x1,y1,a,b);
+	for (var j=0;j<Y.length;j++)
+	{
+		ctx.fillStyle=color[j%color.length];
+		if (j==color.length) ctx.font = "bold "+ctx.font;
+		ctx.fillText(legend[j],x1+5,y1+3+j*15);
+	}
+  
+	var text=legend[0];
+	width = ctx.measureText(text).width;    
+	}
+	
+	
+
+</script>
+
+
+</body>
+</html>
+
