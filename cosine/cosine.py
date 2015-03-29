@@ -67,9 +67,9 @@ for it in range(1,100000):
 fig = plt.figure()
 ax = fig.add_subplot(211, projection='3d')
 ax.scatter(u, v, w, c='r', marker='.')
-ax.set_xlabel('X Label')
-ax.set_ylabel('Y Label')
-ax.set_zlabel('Z Label')
+ax.set_xlabel('u')
+ax.set_ylabel('v')
+ax.set_zlabel('w')
 
 #normalize data
 c0 = count[0]
@@ -80,5 +80,7 @@ cos = [math.cos(th*math.pi/180) for th in bin_theta]
 ax2 = fig.add_subplot(212)
 ax2.plot(bin_theta,count,c='r');
 ax2.plot(bin_theta,cos,c='k')
+ax2.set_xlabel('angle')
+ax2.set_ylabel('normalized count')
 plt.show()
     
