@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-sampling from a cosine distribution
+demo of *incorrect* diffuse sampling by taking 3 random numbers
+Correct sampling shown in cosine.py
 https://www.particleincell.com/2015/cosine-distribution/
 
 @author: lubos brieda
@@ -32,16 +33,10 @@ for bin in range(0,nbins):
 
 # sample random points
 for it in range(1,100000):
-    sin_theta = random()    
-    cos_theta = math.sqrt(1-sin_theta*sin_theta)
-
-    #random in plane angle
-    psi = random()*2*math.pi;
-    
-    #three vector components
-    a = sin_theta*math.cos(psi)
-    b = sin_theta*math.sin(psi)
-    c = cos_theta
+    #pick three random numbers
+    a = -1 + 2*random()
+    b = -1 + 2*random()
+    c = random()
     
     #multiply by corresponding directions
     v1 = [a*n for n in tang1]
@@ -52,6 +47,14 @@ for it in range(1,100000):
     vel = []
     for i in range(0,3):
         vel.append(v1[i]+v2[i]+v3[i])
+ 
+    #make a unit vector
+    vel_mag = math.sqrt(vel[0]*vel[0]+vel[1]*vel[1]+vel[2]*vel[2])
+    for i in range(0,3):
+        vel[i] /= vel_mag
+    
+    #compute theta 
+    cos_theta = vel[0]*norm[0]+vel[1]*norm[1]+vel[2]*norm[2]
      
     #update histogram
     theta = math.acos(cos_theta)*180/math.pi;
@@ -73,7 +76,7 @@ ax.set_ylabel('v')
 ax.set_zlabel('w')
 
 #normalize data
-c0 = count[0]
+c0 = max(count)
 count[:] = [float(c) / c0 for c in count]
 cos = [math.cos(th*math.pi/180) for th in bin_theta]
 
