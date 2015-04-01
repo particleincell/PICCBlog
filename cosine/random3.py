@@ -18,7 +18,7 @@ w = []
 
 count = []
 bin_theta = []
-nbins = 91
+nbins = 90
 delta_bin = 90/(nbins-1)
 
 #surface properties
