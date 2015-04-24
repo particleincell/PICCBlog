@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"> 
+<style>
+body{font-family: monospace;font-size:14px;}
+div#drop {border: 2px dashed gray; width: 100px; height: 75px;font-size:1.2em;
+font-weight:bold;text-align:center;vertical-align:middle;display:table-cell;color:gray;}
+input[type="range"]{width:5em;}
+input[type="number"]{width:4em;}
+div#ui {padding-left:1em;display:table-cell;}
+div#top{box-shadow: 5px 5px #a9a; background-color:#fef; border:1px solid #ede; padding: 0.4em;display:inline-block;}
+html{overflow:hidden;}
+div#download{display:inline-block; vertical-align:top;padding-left:1em;}
+</style>
+</head>
+<body>
+<div id="top">
+<div id="drop">Drop the input file here</div>
+<div id="ui">
+ <form>
+ <label>Tension:</label><input type="range" id="tension" min="0" max="10" value="8"><br>
+ <label>Input Line: </label> <input type="checkbox" id="input_line" checked> <label>Markers:</label><input type="checkbox" id="input_markers" checked><br>
+ <label>Fit Line: </label> <input type="checkbox" id="fit_line" checked> <label>Markers:</label><input type="checkbox" id="fit_markers" checked><br>
+ <label>Number of points:</label> <input type="number" id="npoints" value="24">
+</form>
+</div>
+</div>
+<div id="download"></div>
+<br>
+
+<canvas id="c"></canvas>
+<script>
+
+window.onload=function(){init();}
+
+var ctx;
+var w,h;
+
+function init()
+{
+	// Setup the dnd listeners.
+	var dropZone = document.getElementById('drop');
+	dropZone.addEventListener('dragover', handleDragOver, false);
+	dropZone.addEventListener('dragleave', handleDragLeave, true);
+	dropZone.addEventListener('drop', handleFileSelect, false);
+
+	document.getElementById("tension").addEventListener('input',(function(){setSplines();draw();}),false);
+	document.getElementById("input_line").addEventListener('change',(function(){draw();}),false);
+	document.getElementById("input_markers").addEventListener('change',(function(){draw();}),false);
+	document.getElementById("fit_line").addEventListener('change',(function(){draw();}),false);
+	document.getElementById("fit_markers").addEventListener('change',(function(){draw();}),false);
+	document.getElementById("npoints").addEventListener('change',(function(){recomputePoints();draw();}),false);
+
+	window.addEventListener('resize',(function(){resize();}),false);
+	
+	var c=document.getElementById("c");
+	ctx=c.getContext("2d");
+	resize();	
+}
+
+/*structure to hold data*/
+function Data(){
+ Data.prototype.setHeader = function(header) {this.header=header;}
+ Data.prototype.append = function(x,y) {	
+		var fx = parseFloat(x);
+		var fy = parseFloat(y);
+		if (isNaN(fx)||isNaN(fy)) return;
+		
+		this.x.push(fx);
+		this.y.push(fy);
+		var t = this;
+		if (fx<t.xlims[0]) t.xlims[0]=fx;
+		if (fx>t.xlims[1]) t.xlims[1]=fx;
+		if (fy<t.ylims[0]) t.ylims[0]=fy;
+		if (fy>t.ylims[1]) t.ylims[1]=fy;	
+ }
+ 
+ /*simple sorting function*/
+ Data.prototype.sort = function() {
+  var flipped,tmp;
+  do{
+	  flipped=false;
+	  for (var i=0;i<this.x.length-1;i++)
+	  {
+		if (this.x[i]>this.x[i+1])
+		{
+			tmp=this.x[i];this.x[i]=this.x[i+1];this.x[i+1]=tmp;
+			tmp=this.y[i];this.y[i]=this.y[i+1];this.y[i+1]=tmp;
+			flipped=true;
+		}
+	  }
+  } while(flipped);
+ }
+ 
+ this.x = [];
+ this.y = [];
+ this.header = "";
+ this.xlims =[1e36,-1e36];
+ this.ylims = [1e36,-1e36];
+}
+
+
+/*file reader*/
+var input;
+
+function draw()
+{
+	if (typeof input=="undefined") return;
+
+	/*clear*/
+	ctx.fillStyle="#FFF";
+	ctx.fillRect(0,0,w,h);
+	
+	ctx.strokeStyle="#000";
+	var X = input.x;
+	var Y = input.y;
+	var xlims = input.xlims;
+	var ylims = input.ylims;
+	
+	/*plot input line and markers*/
+	plot(X,Y,xlims,ylims,"input");	
+	
+	/*draw fit*/
+	plotSplines(xlims,ylims);
+			
+	/*draw markers*/
+	if (document.getElementById("fit_markers").checked)
+	{	
+		plotMarkers(fitP,xlims,ylims);
+	}
+}
+
+var fitP=[];
+
+/*recomputes fit points*/
+function recomputePoints()
+{
+	/*add up spline lengths*/
+	var x0=[];
+	var ns =splines.length;	//number of splines
+	for (var i=0;i<ns;i++)
+	{
+		x0[i] = splines[i].P0[0];
+	}
+	x0[ns] = splines[ns-1].P3[0];
+	
+	var np = parseInt(document.getElementById("npoints").value);
+	if (np<2) np = 2;
+	if (np>1000) np=1000;
+	
+	var dx = (x0[ns]-x0[0])/(np-1);	//uniform spacing
+	
+	//add points
+	fitP=[];
+	var s = 0;	//current spline
+	for (var p=0;p<np;p++)
+	{
+		var x=x0[0]+p*dx;
+		
+		/*evaluate current position*/
+		
+		while(x>x0[s+1]) {s++;}
+		if (s>ns-1) s=ns-1;
+		
+		var ft = (x-x0[s])/(x0[s+1]-x0[s]);
+		fitP[p] = [x, splines[s].YatX(x,ft)];
+		
+	}
+
+	var body = input.header;
+	for (var p=0;p<np;p++)
+		body+=fitP[p][0].toFixed(4)+" "+fitP[p][1].toFixed(4)+"\n";
+		
+	var e = document.getElementById("link");
+	link.setAttribute('href',"data:text/plain;charset=utf-8,"+encodeURIComponent(body));
+	draw();
+}
+
+function resize()
+{
+	var bw = window.innerWidth;
+	var bh = window.innerHeight;
+	
+	var c=document.getElementById("c");
+	c.width = parseInt(bw)-50;
+	c.height = parseInt(bh)-150;
+	w=c.width;
+	h=c.height;
+	
+	ctx.translate(0,h);
+	ctx.scale(1,-1);
+	draw();
+	
+}	
+/*make x-y plot*/
+function plot(x,y,xlims,ylims,name)
+{
+	if (!ctx.setLineDash) {
+    ctx.setLineDash = function () {}
+	}
+	
+	if (document.getElementById("input_line").checked)
+	{
+		ctx.setLineDash([10,5]);
+		ctx.beginPath();
+		ctx.moveTo(XtoS(x[0],xlims),YtoS(y[0],ylims));
+		for (var i=1;i<x.length;i++)
+		{
+			ctx.lineTo(XtoS(x[i],xlims),YtoS(y[i],ylims));	
+		}
+		
+		ctx.lineWidth=3;
+		ctx.strokeStyle="black";
+		ctx.stroke();	
+		
+		ctx.setLineDash([0]);
+	}
+	
+	/*make markers*/
+	if (document.getElementById('input_markers').checked)
+	{
+		for (var i=0;i<x.length;i++)
+		{
+			var sx = XtoS(x[i],xlims);
+			var sy = YtoS(y[i],ylims);	
+			ctx.beginPath();
+			ctx.arc(sx, sy, 4, 0, 2 * Math.PI, false);
+			ctx.fillStyle = '#aaa';
+			ctx.fill();
+			ctx.lineWidth = 1;
+			ctx.strokeStyle = 'black';
+			ctx.stroke();
+		}
+	}
+}
+
+/*plots bezier cubics*/
+function plotSplines(xlims,ylims)
+{
+	if (document.getElementById("fit_line").checked)
+	{
+		ctx.beginPath();
+		for (var i=0;i<splines.length;i++)
+		{
+			var s = splines[i];
+			var v1 = s.P0; 
+			var p1 = s.P1;
+			var p2 = s.P2;
+			var v2 = s.P3;
+			if (i==0)
+			ctx.moveTo(XtoS(v1[0],xlims),YtoS(v1[1],ylims));		
+			ctx.bezierCurveTo(XtoS(p1[0],xlims),YtoS(p1[1],ylims),
+								  XtoS(p2[0],xlims),YtoS(p2[1],ylims),
+								  XtoS(v2[0],xlims),YtoS(v2[1],ylims));
+		}
+	
+		ctx.lineWidth=2;
+		ctx.strokeStyle = "red";
+		ctx.stroke();
+	}
+	
+	/*draw control points*/
+	/*
+	for (var i=0;i<x.length-1;i++)
+	{
+		var p1 = [px.p1[i],py.p1[i]];
+		var p2 = [px.p2[i],py.p2[i]];
+		
+		var sx = XtoS(p1[0],xlims);
+		var sy = YtoS(p1[1],ylims);	
+		
+		ctx.beginPath();
+		ctx.arc(sx, sy, 3, 0, 2 * Math.PI, false);
+		ctx.fillStyle = 'blue';
+		ctx.fill();
+		ctx.lineWidth = 1;
+		ctx.strokeStyle = 'black';
+		ctx.stroke();
+		
+		var sx = XtoS(p2[0],xlims);
+		var sy = YtoS(p2[1],ylims);	
+		
+		ctx.beginPath();
+		ctx.arc(sx, sy, 3, 0, 2 * Math.PI, false);
+		ctx.fillStyle = 'green';
+		ctx.fill();
+		ctx.lineWidth = 1;
+		ctx.strokeStyle = 'black';
+		ctx.stroke();
+	}
+	*/
+}
+
+/*plots circles for points P*/
+function plotMarkers(P,xlims,ylims)
+{
+	/*draw control points*/
+	for (var i=0;i<P.length;i++)
+	{
+		var sx = XtoS(P[i][0],xlims);
+		var sy = YtoS(P[i][1],ylims);	
+		ctx.beginPath();
+		ctx.arc(sx, sy, 4, 0, 2 * Math.PI, false);
+		ctx.fillStyle = '#44f';
+		ctx.fill();
+		ctx.lineWidth = 1;
+		ctx.strokeStyle = 'black';
+		ctx.stroke();
+	}
+}
+
+function path(x1,y1,px1,py1,px2,py2,x2,y2)
+{
+	return "M "+x1+" "+y1+" C "+px1+" "+py1+" "+px2+" "+py2+" "+x2+" "+y2;
+}
+
+/*translates from X coordinates to screen coordinates*/
+var PADDING=10,TOP=50;
+function XtoS(x,xlims){ return PADDING+(w-2*PADDING)*(x-xlims[0])/(xlims[1]-xlims[0]);}
+function YtoS(y,ylims){return PADDING+(h-PADDING-TOP)*(y-ylims[0])/(ylims[1]-ylims[0]);}
+
+
+/*------- FILE READING ------*/
+  function handleFileSelect(evt) {
+    evt.stopPropagation();
+    evt.preventDefault();
+	
+	evt.target.style.background="white";
+	
+	var files = evt.dataTransfer.files; // FileList object.
+
+    /*read only first file*/
+	f=files[0];
+	
+	/*parse file*/
+	var reader = new FileReader();
+	
+	// Closure to capture the file information.
+	reader.onload = (function(file,target) {
+		return function(e) {
+		if (target.id=="drop")
+		{
+			parse(e.target.result);
+			draw();
+		}
+		
+		target.innerHTML=file.name;	
+		console.log("Done reading "+file.name);		
+         };
+      })(f,evt.target);
+	  
+	var data = reader.readAsText(f);
+    
+  }
+
+  function handleDragOver(evt) {
+    evt.dataTransfer.dropEffect = 'copy'; 
+	evt.stopPropagation();
+    evt.preventDefault();
+	evt.target.style.background="yellow";
+    }
+
+	function handleDragLeave(evt) {
+	/*evt.target seems to be the new element over the mouse, currentTarget is the original*/
+		evt.currentTarget.style.background="white";
+	}
+
+
+/*computes slopes*/
+function computeSlopes(K)
+{
+  /*get tension*/
+  var e=document.getElementById('tension');
+  c = e.value/10;
+  if (c<0) c= 0;
+  if (c>1) c= 1;
+  
+  p1 = [];
+  p2 = [];
+  m = [];
+  
+  var n = K.length;
+  for (var i=0;i<n;i++)
+  {
+	var im = i-1;
+	var ip = i+1;
+	if (im<0) im=0;
+	if (ip>n-1) ip=n-1;
+	
+	m[i] = (1-c)*(K[ip]-K[im])/(ip-im);
+	
+  }
+  
+  /*compute bezier coeffs*/
+  for (var i=0;i<n-1;i++)
+  {
+	p1[i] = K[i]+m[i]/3;
+	p2[i] = K[i+1]-m[i+1]/3;
+  }
+	return {p1:p1, p2:p2};
+}
+
+var Spline = function(P0,P1,P2,P3){
+	
+	/*recursive length finder*/
+	Spline.prototype.splineSubL = function(t_min,t_max)
+	{
+		/*start, end, and midpoint*/
+		var t_mid = 0.5*(t_min+t_max);
+		var A = this.pos(t_min);
+		var B = this.pos(t_mid);
+		var C = this.pos(t_max);
+		
+		/*two vectors pointing out of B*/
+		var v1 = sub(A,B);	
+		var v2 = sub(C,B);
+		var v1_mag = mag(v1);
+		var v2_mag = mag(v2);
+		var cos_theta = dot(v1,v2)/(v1_mag*v2_mag);
+		if (cos_theta<-0.984)	//170 degrees
+		{
+			/*accept*/
+			return v1_mag+v2_mag;
+		}
+		else
+		{
+			return this.splineSubL(t_min,t_mid)+
+				   this.splineSubL(t_mid,t_max); 
+		}
+	}
+	
+	/*evaluates position on a cubic spline*/
+	Spline.prototype.pos = function(t)
+	{
+		var a=(1-t)*(1-t)*(1-t);
+		var b=3*(1-t)*(1-t)*t;
+		var c=3*(1-t)*t*t;
+		var d=t*t*t;
+		
+		var x=[];
+		for (var dim=0;dim<2;dim++)
+		{
+			x[dim] = a*this.P0[dim]+b*this.P1[dim]+c*this.P2[dim]+d*this.P3[dim];
+		}
+		
+		return x;
+	}
+	
+	/*uses newton's method to find value Y at postion X, given initial guess*/
+	Spline.prototype.YatX = function(x,t0)
+	{
+		/*first need to compute t that gives us this x*/
+		
+		/*10 iterations of newton's method*/
+		var t=t0;
+		var a,b,c,d;
+		for (var it=0;it<10;it++)
+		{
+			a=(1-t)*(1-t)*(1-t);
+			b=3*(1-t)*(1-t)*t;
+			c=3*(1-t)*t*t;
+			d=t*t*t;
+		
+			f = a*this.P0[0]+b*this.P1[0]+c*this.P2[0]+d*this.P3[0]-x;
+			
+			/*derivative*/
+			p = 3*(1-t)*(1-t);
+			r = 6*(1-t)*t;
+			s = 3*t*t;
+			fprime = p*(this.P1[0]-this.P0[0]) + r*(this.P2[0]-this.P1[0]) + 
+					 s*(this.P3[0]-this.P2[0]);
+
+			if (fprime==0) break;
+			t = t-f/fprime;
+			
+		}
+		
+		return this.pos(t)[1];	
+	}
+	
+	this.P0 = P0;
+	this.P1 = P1;
+	this.P2 = P2;
+	this.P3 = P3;
+	this.length = this.splineSubL(0,1);
+
+	
+};
+
+/*vector helper functions*/
+function sub(v1,v2)
+{
+	return [v1[0]-v2[0], v1[1]-v2[1]];
+}
+
+function mag(v1)
+{
+	return Math.sqrt(v1[0]*v1[0]+v1[1]*v1[1])
+}
+function dot(v1,v2)
+{
+	return (v1[0]*v2[0]+v1[1]*v2[1]);
+}
+
+var splines = [];
+
+/*parses the primary file*/
+function parse(buffer)
+{
+	input = new Data();
+	/*split into lines*/
+	var lines = buffer.split("\n");	
+	
+	var header="";
+	
+	/*the test data starts on line 3*/
+	for (var l=0;l<lines.length;l++)
+	{
+		pieces = lines[l].trim().split(/[\s\,]+/);
+		
+		/*is this numeric data?*/
+		if (pieces.length==2 && isNumber(pieces[0]) && isNumber(pieces[1]))
+			input.append(pieces[0], pieces[1]);		
+		else if (l<5) header=header+lines[l]+"\n";
+	}
+	
+	input.setHeader(header);
+	input.sort();
+
+	/*show output link, need to call before setSplines()*/
+	document.getElementById("download").innerHTML="Download <a id=\"link\" href=\"\" download=\"output.txt\">output.txt</a>";
+
+	setSplines();
+	
+}
+
+/*per http://stackoverflow.com/questions/18082/validate-decimal-numbers-in-javascript-isnumeric*/
+function isNumber(val) {return isFinite(parseFloat(val));}
+
+function setSplines() {
+	/*now we have data, process the spline*/
+	
+	var X = input.x;
+	var Y = input.y;
+	var px = computeSlopes(X);
+	var py = computeSlopes(Y);
+	
+	splines = [];
+	for (var i=0;i<X.length-1;i++)
+	{
+		var K1 = [X[i],Y[i]];
+		var K2 = [X[i+1],Y[i+1]];
+		var P1 = [px.p1[i],py.p1[i]];
+		var P2 = [px.p2[i],py.p2[i]];
+		splines.push(new Spline(K1,P1,P2,K2));
+	}
+	
+	recomputePoints();
+}
+</script>
+
+</body>
+
+</html>

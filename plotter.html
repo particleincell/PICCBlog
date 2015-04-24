@@ -1,0 +1,93 @@
+<!--plotting demo by Lubos Brieda, lubos.brieda@particleincell.com-->
+<!DOCTYPE HTML>
+<html>
+<meta charset="utf-8">
+<style>
+
+</style>
+
+<body>
+
+<canvas id="canvas" width="400" height="400" style="border: 2px solid black;">
+
+</canvas>
+
+<form action="null" method="post">
+Contours: <input type="range" id="nc" min="1" max="250" value="25" oninput="replot();" ><span id="span_nc"></span><br>
+ni: <input type="range" id="ni" min="5" max="80" value="40" style="width:100px" oninput="replot();" ><span id="span_ni"></span><br> 
+nj: <input type="range" id="nj" min="5" max="80" value="40" style="width:100px" oninput="replot();" ><span id="span_nj"></span><br>
+
+</form>
+
+<script>
+init();
+replot();
+function replot()
+{
+    var nc=document.getElementById("nc").value;
+    var ni=document.getElementById("ni").value;
+    var nj=document.getElementById("nj").value;
+    
+    document.getElementById("span_nc").innerHTML="("+nc+")";
+    document.getElementById("span_ni").innerHTML="("+ni+")";
+    document.getElementById("span_nj").innerHTML="("+nj+")";
+    
+    plot(ni,nj,nc);
+}
+
+var ctx;
+function init()
+{
+var c = document.getElementById("canvas");
+ctx = c.getContext("2d");
+var w=400;
+var h=400;
+ctx.width=w;
+ctx.height=h;
+ctx.translate(200,200);
+ctx.scale(200,-200);
+ctx.fillStyle = "#FFC";
+ctx.lineWidth=2/w;
+}
+
+function plot(ni,nj,nlev)
+{
+ctx.fillRect(0,-1,1,0);
+ctx.strokeRect(-1,-1,2,2);
+var di = 2/(ni-1);
+var dj = 2/(nj-1);
+var x0 = -1;
+var y0 = -1;
+
+for (var j=0;j<nj;j++)
+for (var i=0;i<ni;i++)
+{
+    var x = x0+i*di;
+    var y = y0+j*dj;
+    var z = 0.5*(2-(x*x+y*y));
+    var z=Math.round(z*nlev)/nlev;
+    var H=240*(1-z);
+    var X=Math.floor(H/60);
+    var Y=Math.floor(255*((H%60)/60));
+    var r,g,b;
+    switch(X)
+    {
+        case 0: r=255;g=Y;b=0;break;
+        case 1: r=255-Y;g=255;b=0;break;
+        case 2: r=0;g=255;b=Y;break;
+        case 3: r=0;g=255-Y;b=255;break;
+        case 4: r=0;g=0;b=255;break;
+    }
+    
+    ctx.fillStyle = "rgb("+r+","+g+","+b+")";
+   //console.log(z+"  "+H+":"+X+":"+Y+"\trgb("+r+","+g+","+b+")"); 
+    ctx.fillRect(x-0.5*di,y-0.5*dj,di*1.2,dj*1.2);
+}
+}
+
+
+</script>
+
+</body>
+
+</html>
