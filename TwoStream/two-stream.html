@@ -1,0 +1,333 @@
+<html>
+<head>
+<meta charset="utf8">
+<style>
+canvas {border:1px solid silver;margin:2px;padding:0;}
+div#console{padding:2px;width:40em;height:10em;font-family:monospace;background-color:black;color:lime;}
+</style>
+</head>
+
+<body onload="init()">
+
+<canvas width="600px" height="300px" id="c1">Your browser does not support canvas</canvas>
+<canvas width="300px" height="300px" id="c2">Your browser does not support canvas</canvas>
+<canvas width="300px" height="300px" id="c3">Your browser does not support canvas</canvas>
+<div id="console"></div>
+<script>
+function init()
+{
+	sc_plot.init("c1");
+	hist_plot.init("c2");
+	phi_plot.init("c3");
+	sim.init();
+}
+
+/*plotting support*/
+var Plot = function()
+{
+	var ctx;	/*canvas context*/
+	var c;		/*canvas element*/
+	
+	var p = Plot.prototype;
+	
+	/*scaling data*/
+	var x0,xL;
+	var y0,yL;
+	
+	/*initializes data structures*/
+	p.init = function(canvas_id)
+	{
+		var $=this;
+		$.c = document.getElementById(canvas_id);
+		$.ctx = $.c.getContext("2d");
+		$.ctx.translate(0,$.c.height);
+		$.ctx.scale(1,-1);		
+		
+		$.setRange(0,1,0,1);
+	}
+	
+	/*sets scaling*/
+	p.setRange = function(x0,x1,y0,y1)
+	{
+		var $=this;
+		$.x0 = x0; $.xL=(x1-x0);
+		$.y0 = y0; $.yL=(y1-y0);
+	}
+	
+	/*clear plot*/
+	p.clear = function()
+	{
+		var $=this;
+		$.ctx.clearRect(0,0,$.c.width,$.c.height);
+	}
+	
+	/*plots a small circle in range [x0,x0+xL],[y0,y0+yL]*/
+	p.circle = function(x,y,type)
+	{
+		var $=this;
+		var R=4;	/*radius*/
+		$.ctx.lineWidth = 1;
+		
+		/*switch color depending on type*/
+		if (type==0)
+		{
+			$.ctx.fillStyle="rgba(100,100,200,0.3)";
+			$.ctx.strokeStyle="rgb(100,100,200)";
+		}
+		else if (type==1)
+		{
+			$.ctx.fillStyle="rgba(200,100,100,0.3)";
+			$.ctx.strokeStyle="rgb(200,100,100)";
+		}
+		
+		var a = 1-(Math.abs(y)/(0.5*$.yL));
+		
+		$.ctx.fillStyle="rgba(200,100,100,"+a+")";
+		$.ctx.strokeStyle="rgba(200,100,100,"+a+")";
+		
+		/*transform x and y to [0,1]*/
+		var tr_x = $.c.width*(x-$.x0)/$.xL;
+		var tr_y = $.c.height*(y-$.y0)/$.yL;
+		
+		$.ctx.beginPath();
+		$.ctx.arc(tr_x,tr_y,R,0,2*Math.PI);
+		$.ctx.fill();
+		$.ctx.stroke();
+		
+		/*duplicate particles because of periodic bc*/
+	/*	if (tr_x<R) 
+		{
+			$.ctx.beginPath();
+			$.ctx.arc($.c.width-tr_x,tr_y,R,0,2*Math.PI);		
+			$.ctx.fill();
+			$.ctx.stroke();
+		}
+		if (tr_x>$.c.width-R) 
+		{
+			$.ctx.beginPath();
+			$.ctx.arc($.c.width-tr_x,tr_y,R,0,2*Math.PI);		
+			$.ctx.fill();
+			$.ctx.stroke();
+		}
+		*/
+		
+	}
+
+	/*makes an x-y plot*/
+};
+
+/*Two stream instability simulation*/
+var TwoSI = function()
+{
+	
+	var p = TwoSI.prototype;
+	var $ = this;
+	var int_id;
+	
+	/*particle definition*/
+    var Part = function(x,v,tag)
+	{
+		var x;	/*position*/
+		var v;	/*velocity*/
+		var tag; /*tag*/
+		var q = 1;	/*charge*/
+		
+		this.x = x; this.v=v; this.tag=tag;
+	}
+	
+	var parts;	/*holds list of particles*/
+	var dt;		/*time step*/
+	var L;		/*simulation length*/
+	var ni;		/*number of mesh nodes*/
+	var dh;		/*cell size*/
+	var time;	/*simulation time*/
+	
+	/*initializes the simulation*/
+	p.init = function()
+	{
+		/*create bunch of random particles*/
+		var np_cell=10;
+		
+		$.L=0.1*Math.PI;
+		var vmag = 1;
+		
+		/*new empty list*/
+		$.parts = [];
+		
+		$.ni = 32;	
+		$.dh = $.L/($.ni-1);
+		
+		var np = ($.ni-1)*np_cell;
+			
+		var random_seed =false;
+		
+		if (random_seed)
+		{
+			for (var i=0;i<np;i++)
+			{
+				$.parts.push(new Part(Math.random()*$.L,vmag,0));
+				$.parts.push(new Part(Math.random()*$.L,-1.2*vmag,1));	
+			}
+		}
+		else 	/*uniform seeding*/
+		{	
+			var delta_x = $.L/np;
+			var x=0;
+			for (var p=0;p<np;p++)
+			{
+				x = p*delta_x;
+				$.parts.push(new Part(x,vmag,0));
+				$.parts.push(new Part(x,-vmag,1));	
+			}
+		}
+			
+		/*set time step*/
+		$.dt = 1e-5;
+		
+		$.time = 0;
+		sc_plot.setRange(0,$.L,-3*vmag,3*vmag);
+		$.int_id= window.setInterval($.run,20);
+		$.run();
+	}
+	
+	/*runs the simulation*/
+	p.run = function()
+	{
+		var EPS0 = 8.854e-12;
+		var MP = 1.66e-27;		/*proton mass*/
+		var ME = 9.11e-31;		/*electron mass*/
+		
+		var ni = $.ni;
+		var dh = $.dh;	/*cell size*/
+		var np = $.parts.length;	/*number of particles*/
+		var spwt = 1;
+		var q = 1.602e-19;
+		var m = MP;
+		var qm = q/m;
+		
+		phi = [];
+		ef = [];
+		for (var i=0;i<ni;i++)
+		{
+			phi.push(0);
+			ef.push(0);				
+		}
+		
+		var sub_it;
+		for (sub_it=0;sub_it<200;sub_it++)
+		{
+			/*reset fields*/
+			rho = [];
+			
+			for (var i=0;i<ni;i++)
+				rho.push(0);
+			
+			/*scatter particles to grid*/
+			for (var p=0;p<np;p++)
+			{
+				/*get particle logical coordinate*/
+				var lc = $.parts[p].x/dh;
+				var i = Math.floor(lc);
+				if (i<0 || i>ni-1)
+					console.log("bad particle");
+				var d = lc-i;
+				rho[i]+=(1-d)*spwt;
+				rho[i+1]+=d*spwt;
+			}
+			
+			/*add stationary background charges
+			ni-1 because last and first node are the same*/
+			for (var i=0;i<ni-1;i++)
+				rho[i] -= spwt*(np/(ni-1));
+			
+			/*apply periodic bc*/
+			rho[ni-1] += rho[0];
+			rho[0] = rho[ni-1];
+			
+			/*divide by cell size to get charge density*/
+			for (var i=0;i<ni-1;i++)
+				rho[i] *= q/dh;
+	
+			/*solve potential*/
+			for (var solver_it=0;solver_it<50;solver_it++)
+			{
+				for (var i=1;i<ni-1;i++)
+					phi[i] = 0.5*((rho[i]/EPS0)*dh*dh + phi[i-1] + phi[i+1])
+				phi[ni-1]=phi[0];
+			}
+			
+			/*electric field*/
+			for (var i=0;i<ni;i++)
+			{
+				var im = i-1;
+				var ip = i+1;
+				if (im<0) im=ni-2;
+				if (ip>ni-1) ip=1;
+				
+				ef[i] = (phi[im]-phi[ip])/(2*dh);
+			}
+			
+			/*update positions*/
+			for (var p=0;p<np;p++)
+			{
+				var P = $.parts[p];
+				
+				/*interpolate EF to particle position*/
+				var lc = $.parts[p].x/dh;
+				var i = Math.floor(lc);
+				var d = lc-i;
+				var ef_p = ef[i]*(1-d) + ef[i+1]*d;
+				
+				P.v += ef_p*qm*$.dt;				
+				P.x += P.v*$.dt;
+				
+				/*periodic boundary for particles*/
+				if (P.x<0) P.x += $.L;
+				if (P.x>=$.L) P.x -= $.L;
+			}
+		
+		}
+	
+		/*compute statistics*/
+		var KE=0;
+		var PE=0;
+		for (var p=0;p<np;p++)
+		{
+			var P = $.parts[p];
+			KE+=P.v*P.v;
+		}
+		
+		for (var i=0;i<ni;i++)
+		{
+			PE += rho[i]/q*phi[i];
+		}
+		
+		var con = document.getElementById("console");
+		con.innerHTML="** Two Stream Instability Simulation **<br>";
+		con.innerHTML+="** Particle In Cell Consulting LLC **<br>";		
+		con.innerHTML+="> Simulation Time: "+$.time.toPrecision(3)+"<br>";
+		con.innerHTML+="> Total Kinetic Energy: "+KE.toFixed(3)+"<br>";
+		con.innerHTML+="> Total Field Energy: "+PE.toPrecision(3)+"<br>";
+		
+		
+		/*clear plot*/
+		sc_plot.clear();
+		
+		/*plot particles*/
+		for (var p=0;p<np;p++)
+			sc_plot.circle($.parts[p].x,$.parts[p].v,$.parts[p].tag);
+			
+		/*check for end condition*/
+		$.time += sub_it*$.dt;
+	//	if ($.time>10) window.clearInterval($.int_id);
+	}
+};
+
+var sc_plot = new Plot();
+var hist_plot = new Plot();
+var phi_plot = new Plot();
+var sim = new TwoSI();
+</script>
+
+</body>
+</html>
