@@ -4,22 +4,98 @@
 <style>
 canvas {border:1px solid silver;margin:2px;padding:0;}
 div#console{padding:2px;width:40em;height:10em;font-family:monospace;background-color:black;color:lime;}
+form{padding: 0.2em;width: 26em; border:1px solid black;box-shadow: #ddd 5px 5px;}
+input[type=button] {font-size:1.2em;color:darkblue;}
+input[type=text]{font-family:monospace;font-size:1.1em;width: 2.5em;border: black inset 1px;padding:0.1em; margin:0.1em 0.4em 0.1em 0.1em;
+	background:black;color:lime;font-weight:600;text-align:right;}
+input#nodes, input#dt,input#dx0,input#tol{width: 3em;}
+input[type=checkbox]{transform:scale(1.2)}
+label.l {font-weight:bold; margin-right:1em;}
 </style>
 </head>
 
 <body onload="init()">
+<form>
+<input type="button" id="go" value="&#x25BA;" title="Start/Pause"> 
+<input type="button" id="reset" value="&#x21A9;" title="Reset"> 
+<br>
 
-<canvas width="600px" height="300px" id="c1">Your browser does not support canvas</canvas>
+<label class="l">Domain:</label> L/&pi;:<input type="text" id="L" value="2"> 
+nodes:<input type="text" id="nodes" value="64"> wp:<input type="text" id="wp" value="1"><br>
+<label class="l">Loading:</label> np/cell:<input type="text" id="np_cell" value="20"> mode: <input type="text" id="mode" value="1"> dx0:<input type="text" id="dx0" value="1e-4"><br>
+<label class="l">Species:</label>q/m1: <input type="text" id="qm1" value="-1"> v1: <input type="text" id="v1" value="1">
+q/m2: <input type="text" id="qm2" value="-1"> v2: <input type="text" id="v2" value="-1">
+<br>
+<label class="l">Solver:</label> dt:<input type="text" id="dt" value="0.1"> tol:<input type="text" id="tol" value="1e-6"> fps:<input type="text" id="fps" value="10"> sub it:<input type="text" id="sub_it" value="1"><br>
+<label class="l">Plot:</label><input type="checkbox" id="plot_xv" checked>x/v phase <input type="checkbox" id="plot_hist" checked>Histogram <input type="checkbox" id="plot_fields" checked>Fields
+
+</form>
+<canvas width="610px" height="300px" id="c1">Your browser does not support canvas</canvas>
 <canvas width="300px" height="300px" id="c2">Your browser does not support canvas</canvas>
 <canvas width="300px" height="300px" id="c3">Your browser does not support canvas</canvas>
 <div id="console"></div>
 <script>
+
+var go_ele;
+var timeout_id;
 function init()
 {
+	go_ele = document.getElementById("go");
+	go_ele.addEventListener("click",toggleSim);
+	document.getElementById("reset").addEventListener("click",sim.init);
+	
+	/*listeners for checkboxes*/
+	document.getElementById("plot_xv").addEventListener("change",togglePlots);
+	document.getElementById("plot_hist").addEventListener("change",togglePlots);
+	document.getElementById("plot_fields").addEventListener("change",togglePlots);
 	sc_plot.init("c1");
 	hist_plot.init("c2");
 	phi_plot.init("c3");
 	sim.init();
+	timeout_id=window.setTimeout(toggleSim,5000);
+}
+
+/*toggles simulation*/
+function toggleSim()
+{
+	if (timeout_id>=0) { window.clearTimeout(timeout_id); timeout_id=-1;}
+	if (go_ele.value.charCodeAt(0)==0x25BA)
+	{
+		go_ele.value=String.fromCharCode(0x25FC);
+		sim.start();
+	}
+	else
+	{
+		go_ele.value=String.fromCharCode(0x25BA);
+		sim.pause();
+	}
+}
+
+/*handler for plot checkboxes*/
+function togglePlots()
+{
+	sc_plot.display(document.getElementById("plot_xv").checked);
+	hist_plot.display(document.getElementById("plot_hist").checked);
+	phi_plot.display(document.getElementById("plot_fields").checked);
+	
+}
+
+/*returns numerical value from user inputs*/
+function getVal(id,def)
+{
+	var ele = document.getElementById(id);
+	if (!ele) 
+		console.log("Could not find "+id);
+	
+	/*convert to number*/
+	var val = parseFloat(ele.value);
+	if (!isFinite(val))
+	{	
+		console.log("Failed to parse "+ele.value+" to number, returning default "+def);
+		ele.val = def;
+		return def;
+	}
+	return val;		
 }
 
 /*plotting support*/
@@ -34,6 +110,8 @@ var Plot = function()
 	var x0,xL;
 	var y0,yL;
 	
+	var visible;	/*visibility flag*/
+	
 	/*initializes data structures*/
 	p.init = function(canvas_id)
 	{
@@ -41,9 +119,18 @@ var Plot = function()
 		$.c = document.getElementById(canvas_id);
 		$.ctx = $.c.getContext("2d");
 		$.ctx.translate(0,$.c.height);
-		$.ctx.scale(1,-1);		
-		
+		$.ctx.scale(1,-1);				
 		$.setRange(0,1,0,1);
+		$.display(true);
+	}
+	
+	/*hides or shows this plot*/
+	p.display = function(disp)
+	{
+		var $=this;
+		$.visible = (disp==true)
+		if (!disp) $.c.style.display="none";
+		else $.c.style.display="inline-block";
 	}
 	
 	/*sets scaling*/
@@ -68,22 +155,16 @@ var Plot = function()
 		var R=4;	/*radius*/
 		$.ctx.lineWidth = 1;
 		
+		var a = 0.1 + 0.8*(1-(Math.abs(y)/(0.5*$.yL)));
+		
 		/*switch color depending on type*/
 		if (type==0)
-		{
-			$.ctx.fillStyle="rgba(100,100,200,0.3)";
-			$.ctx.strokeStyle="rgb(100,100,200)";
-		}
+			$.ctx.fillStyle="rgba(100,100,200,"+a+")";
 		else if (type==1)
-		{
-			$.ctx.fillStyle="rgba(200,100,100,0.3)";
-			$.ctx.strokeStyle="rgb(200,100,100)";
-		}
+			$.ctx.fillStyle="rgba(200,100,100,"+a+")";
 		
-		var a = 1-(Math.abs(y)/(0.5*$.yL));
 		
-		$.ctx.fillStyle="rgba(200,100,100,"+a+")";
-		$.ctx.strokeStyle="rgba(200,100,100,"+a+")";
+		//$.ctx.fillStyle="rgba(200,100,100,"+a+")";
 		
 		/*transform x and y to [0,1]*/
 		var tr_x = $.c.width*(x-$.x0)/$.xL;
@@ -91,29 +172,67 @@ var Plot = function()
 		
 		$.ctx.beginPath();
 		$.ctx.arc(tr_x,tr_y,R,0,2*Math.PI);
-		$.ctx.fill();
-		$.ctx.stroke();
-		
-		/*duplicate particles because of periodic bc*/
-	/*	if (tr_x<R) 
-		{
-			$.ctx.beginPath();
-			$.ctx.arc($.c.width-tr_x,tr_y,R,0,2*Math.PI);		
-			$.ctx.fill();
-			$.ctx.stroke();
-		}
-		if (tr_x>$.c.width-R) 
-		{
-			$.ctx.beginPath();
-			$.ctx.arc($.c.width-tr_x,tr_y,R,0,2*Math.PI);		
-			$.ctx.fill();
-			$.ctx.stroke();
-		}
-		*/
-		
+		$.ctx.fill();		
 	}
 
-	/*makes an x-y plot*/
+	/*makes a histogram plot*/
+	p.hist = function(bins,max_val)
+	{
+		var $ = this;
+		var bin_w = $.c.width/bins.length;
+		
+		/*height scaling*/
+		var bin_h = $.c.height/max_val;
+		
+		$.clear();
+		$.ctx.fillStyle="rgb(128,128,128)";
+		$.ctx.strokeStyle="rgb(32,32,32)";
+		for (var i=0;i<bins.length;i++)
+		{
+			if (bins[i]>0)
+			{
+				$.ctx.fillRect(i*bin_w,-1,bin_w,bins[i]*bin_h);			
+				$.ctx.strokeRect(i*bin_w,-1,bin_w,bins[i]*bin_h);			
+			}
+		}		
+	}
+	
+	/*makes an xy plot*/
+	p.xy = function(x,y,strokeStyle,lineWidth)
+	{
+		var $=this;
+		var P=10;	/*padding*/
+		$.ctx.strokeStyle = strokeStyle;
+		$.ctx.lineWidth = lineWidth;
+		/*get scaling*/
+		var x_min=x[0];var x_max=x[0];
+		var y_min=y[0];var y_max=y[0];
+		for (var i=0;i<x.length;i++)
+		{
+			if (x[i]<x_min) x_min=x[i];
+			if (x[i]>x_max) x_max=x[i];
+			if (y[i]<y_min) y_min=y[i];
+			if (y[i]>y_max) y_max=y[i];			
+		}
+		var xs = ($.c.width-2*P)/(x_max-x_min);
+		var ys = ($.c.height-2*P)/(y_max-y_min);
+		$.ctx.beginPath();
+		$.ctx.moveTo(P+(x[0]-x_min)*xs,P+(y[0]-y_min)*ys);
+		for (var i=1;i<x.length;i++)
+			$.ctx.lineTo(P+(x[i]-x_min)*xs,P+(y[i]-y_min)*ys);
+		$.ctx.stroke();
+	}
+	
+	/*adds plot label*/
+	p.label = function(text)
+	{
+		var $=this;
+		$.ctx.scale(1,-1);	
+		$.ctx.font="12px monospace";
+		$.ctx.fillStyle="rgb(0,0,0)";
+		$.ctx.fillText(text,5,17-$.c.height);
+		$.ctx.scale(1,-1);	
+	}
 };
 
 /*Two stream instability simulation*/
@@ -125,14 +244,10 @@ var TwoSI = function()
 	var int_id;
 	
 	/*particle definition*/
-    var Part = function(x,v,tag)
+    var Part = function(x,v,tag,q,m)
 	{
-		var x;	/*position*/
-		var v;	/*velocity*/
-		var tag; /*tag*/
-		var q = 1;	/*charge*/
-		
 		this.x = x; this.v=v; this.tag=tag;
+		this.q = q; this.m=m; this.qm = q/m;
 	}
 	
 	var parts;	/*holds list of particles*/
@@ -141,86 +256,139 @@ var TwoSI = function()
 	var ni;		/*number of mesh nodes*/
 	var dh;		/*cell size*/
 	var time;	/*simulation time*/
+	var it;		/*iteration number*/
+	var vmag;	/*initial velocity magnitude*/
+	var dx0;	/*magnitude of position perturbation*/
 	
+	/*fields*/
+	var phi;
+	var rho;
+	var ef;
+	var x;
+	
+	var EPS0;			
+		
 	/*initializes the simulation*/
 	p.init = function()
 	{
-		/*create bunch of random particles*/
-		var np_cell=10;
+		var np_cell=getVal("np_cell",20);
+		var num_cells=getVal("nodes",64);
+		$.ni = num_cells+1;	
+		var np = (num_cells)*np_cell;
 		
-		$.L=0.1*Math.PI;
-		var vmag = 1;
+		$.L=getVal("L",2)*Math.PI;
+		
+		var vmag1 = getVal("v1",1);
+		var vmag2 = getVal("v2",-1);
+		
+		/*set average vmag for plots*/
+		$.vmag0 = 0.5*(Math.abs(vmag1)+Math.abs(vmag2));
+		
+		/*get q/m*/
+		var qm1 = getVal("qm1",-1);
+		var qm2 = getVal("qm2",-1);
+		
+		/*plasma frequency*/
+		var wp = getVal("wp",1);
+		
+		/*charges from plasma frequency*/
+		$.EPS0=1;
+		var q1 = wp*wp*(1/qm1)*$.EPS0*$.L/(0.5*np);
+		var q2 = wp*wp*(1/qm2)*$.EPS0*$.L/(0.5*np);
+		
+		/*charge of the neutralizing background*/
+		$.q0 = -0.5*(q1+q2);
+		
+		/*masses, only used for energy*/
+		var m1 = q1/qm1;
+		var m2 = q2/qm2;
 		
 		/*new empty list*/
 		$.parts = [];
 		
-		$.ni = 32;	
-		$.dh = $.L/($.ni-1);
+		/*uniform seeding*/
+		var delta_x = $.L/np;
 		
-		var np = ($.ni-1)*np_cell;
-			
-		var random_seed =false;
+		/*disturbance data*/
+		var mode=getVal("mode",1);
+		$.dx0 = getVal("dx0",0.0001);
 		
-		if (random_seed)
+		for (var p=0;p<np;p++)
 		{
-			for (var i=0;i<np;i++)
-			{
-				$.parts.push(new Part(Math.random()*$.L,vmag,0));
-				$.parts.push(new Part(Math.random()*$.L,-1.2*vmag,1));	
-			}
-		}
-		else 	/*uniform seeding*/
-		{	
-			var delta_x = $.L/np;
-			var x=0;
-			for (var p=0;p<np;p++)
-			{
-				x = p*delta_x;
-				$.parts.push(new Part(x,vmag,0));
-				$.parts.push(new Part(x,-vmag,1));	
-			}
-		}
+			var x0 = (p+0.5)*delta_x;
 			
-		/*set time step*/
-		$.dt = 1e-5;
+			/*perturb positions*/
+			var theta = 2*Math.PI*mode*x0/$.L;
+			var dx = $.dx0*Math.cos(theta);
+			var x1 = x0+dx
+			var x2 = x0-dx;
+			
+			if (x1<0) x1+=$.L;
+			if (x2<0) x2+=$.L;
+			if (x1>=$.L) x1-=$.L;
+			if (x2>=$.L) x2-=$.L;
+			
+			$.parts.push(new Part(x1,vmag1,0,q1,m1));
+			$.parts.push(new Part(x2,vmag2,1,q2,m2));	
+		}
+		
+		/*cell spacing*/
+		$.dh = $.L/($.ni-1);	/*cell spacing*/
+		
+		/*reset fields*/
+		$.l2 = 0;
+		$.phi = [];
+		$.ef = [];
+		$.rho = [];
+		$.x = [];
+		for (var i=0;i<$.ni;i++)
+		{
+			$.phi.push(0);
+			$.ef.push(0);				
+			$.rho.push(0);
+			$.x.push(i*$.dh);
+		}
 		
 		$.time = 0;
-		sc_plot.setRange(0,$.L,-3*vmag,3*vmag);
-		$.int_id= window.setInterval($.run,20);
-		$.run();
+		$.it = 0;
+		sc_plot.setRange(0,$.L,-3*$.vmag0,3*$.vmag0);
+		
+		$.plots();
 	}
 	
+	p.start = function() {$.int_id= window.setInterval($.step,$.delay);}
+	p.pause = function() {window.clearInterval($.int_id);}
+	
 	/*runs the simulation*/
-	p.run = function()
+	p.step = function()
 	{
-		var EPS0 = 8.854e-12;
-		var MP = 1.66e-27;		/*proton mass*/
-		var ME = 9.11e-31;		/*electron mass*/
-		
+		/*pointers*/
 		var ni = $.ni;
-		var dh = $.dh;	/*cell size*/
-		var np = $.parts.length;	/*number of particles*/
-		var spwt = 1;
-		var q = 1.602e-19;
-		var m = MP;
-		var qm = q/m;
+		var rho = $.rho;
+		var phi = $.phi;
+		var ef = $.ef;		
 		
-		phi = [];
-		ef = [];
-		for (var i=0;i<ni;i++)
-		{
-			phi.push(0);
-			ef.push(0);				
-		}
+		/*grab user parameters*/
+		var dt = getVal("dt",0.1);
+		var n_sub_it = getVal("sub_it",1);
+		var tol = getVal("tol",1e-6);
+		
+		/*animation delay*/
+		var fps =getVal("fps",20);
+		if (fps<1) fps=1;
+		if (fps>100) fps=100;
+		var new_delay = 1000/fps;
+		if ($.int_id>=0 && new_delay!=$.delay) {$.delay=new_delay;$.pause();$.start();}		
+		
+		var dh = $.dh;
+		var np = $.parts.length;	/*number of particles*/
 		
 		var sub_it;
-		for (sub_it=0;sub_it<200;sub_it++)
+		for (sub_it=0;sub_it<n_sub_it;sub_it++)
 		{
-			/*reset fields*/
-			rho = [];
-			
+			/*clear rho*/
 			for (var i=0;i<ni;i++)
-				rho.push(0);
+				rho[i] = 0;
 			
 			/*scatter particles to grid*/
 			for (var p=0;p<np;p++)
@@ -228,33 +396,57 @@ var TwoSI = function()
 				/*get particle logical coordinate*/
 				var lc = $.parts[p].x/dh;
 				var i = Math.floor(lc);
-				if (i<0 || i>ni-1)
-					console.log("bad particle");
+				var q = $.parts[p].q;
 				var d = lc-i;
-				rho[i]+=(1-d)*spwt;
-				rho[i+1]+=d*spwt;
+				rho[i]+=q*(1-d);
+				rho[i+1]+=q*d;
 			}
 			
-			/*add stationary background charges
+			/*add stationary background charges,
 			ni-1 because last and first node are the same*/
 			for (var i=0;i<ni-1;i++)
-				rho[i] -= spwt*(np/(ni-1));
+				rho[i] += $.q0*(np/(ni-1));
 			
 			/*apply periodic bc*/
 			rho[ni-1] += rho[0];
 			rho[0] = rho[ni-1];
-			
+				
 			/*divide by cell size to get charge density*/
-			for (var i=0;i<ni-1;i++)
-				rho[i] *= q/dh;
+			for (var i=0;i<ni;i++)
+				rho[i] /= dh;
 	
+			/*remove noise*/
+			for (var i=0;i<ni;i++) if (Math.abs(rho[i])<1e-10) rho[i]=0;
+
 			/*solve potential*/
-			for (var solver_it=0;solver_it<50;solver_it++)
+			phi[0]=0;
+			for (var i=0;i<ni;i++) phi[i]=0;
+			for (var solver_it=0;solver_it<20000;solver_it++)
 			{
-				for (var i=1;i<ni-1;i++)
-					phi[i] = 0.5*((rho[i]/EPS0)*dh*dh + phi[i-1] + phi[i+1])
-				phi[ni-1]=phi[0];
+				for (var i=0;i<ni-1;i++)
+				{
+					var im = i-1; if (im<0) im=ni-2;
+					var ip = i+1;if (ip==ni-1) ip=0;
+					var g = 0.5*((rho[i]/$.EPS0)*dh*dh + phi[im] + phi[ip]);
+					phi[i] = phi[i]+1.4*(g-phi[i]);
+				}
+
+			    /*convergence check*/
+				if (solver_it%25==0)
+				{
+					var sum=0;
+					for (var i=1;i<ni-1;i++)
+					{
+						var ip = i+1;if (ip==ni-1) ip=0;
+						var res=rho[i]/$.EPS0+(phi[i-1]-2*phi[i]+phi[ip])/(dh*dh)
+						sum += res*res;
+					}
+					$.l2 = Math.sqrt(sum/ni);
+					if ($.l2<tol) break;
+					
+				}
 			}
+			phi[ni-1]=phi[0];
 			
 			/*electric field*/
 			for (var i=0;i<ni;i++)
@@ -278,15 +470,32 @@ var TwoSI = function()
 				var d = lc-i;
 				var ef_p = ef[i]*(1-d) + ef[i+1]*d;
 				
-				P.v += ef_p*qm*$.dt;				
-				P.x += P.v*$.dt;
+				/*first time rewind velocity 0.5dt*/
+				if (it==0) P.v -= 0.5*ef_p*P.qm*dt;				
+								
+				/*update velocity*/
+				P.v += ef_p*P.qm*dt;				
+					
+				/*update position*/
+				P.x += P.v*dt;
 				
 				/*periodic boundary for particles*/
 				if (P.x<0) P.x += $.L;
 				if (P.x>=$.L) P.x -= $.L;
 			}
-		
 		}
+			
+		/*show plots*/
+		$.plots();
+		/*check for end condition*/		
+		$.it += sub_it;
+		$.time += dt;
+	}
+	
+/*plotting function*/
+	p.plots = function()
+	{
+		var np = $.parts.length;
 	
 		/*compute statistics*/
 		var KE=0;
@@ -294,32 +503,63 @@ var TwoSI = function()
 		for (var p=0;p<np;p++)
 		{
 			var P = $.parts[p];
-			KE+=P.v*P.v;
-		}
+			KE+=P.m*P.v*P.v;
+		}		
+		KE*=0.5;
 		
 		for (var i=0;i<ni;i++)
-		{
-			PE += rho[i]/q*phi[i];
-		}
+			PE += rho[i]*phi[i];
+		PE *= $.q0;
 		
+		phi_min=$.phi[0],phi_max=$.phi[0];
+		for (var i=0;i<ni;i++)
+		{
+			if ($.phi[i]<phi_min) phi_min=$.phi[i];
+			if ($.phi[i]>phi_max) phi_max=$.phi[i];
+		}
+			
 		var con = document.getElementById("console");
-		con.innerHTML="** Two Stream Instability Simulation **<br>";
+		con.innerHTML="** Two Stream Instability Simulation (v0.1)**<br>";
 		con.innerHTML+="** Particle In Cell Consulting LLC **<br>";		
 		con.innerHTML+="> Simulation Time: "+$.time.toPrecision(3)+"<br>";
-		con.innerHTML+="> Total Kinetic Energy: "+KE.toFixed(3)+"<br>";
-		con.innerHTML+="> Total Field Energy: "+PE.toPrecision(3)+"<br>";
-		
-		
-		/*clear plot*/
-		sc_plot.clear();
-		
+		con.innerHTML+="> Kinetic Energy: "+KE.toFixed(3)+"<br>";
+		con.innerHTML+="> Field Energy: "+PE.toPrecision(3)+"<br>";
+		//con.innerHTML+="> Total Energy: "+(PE+KE).toPrecision(3)+"<br>";
+		con.innerHTML+="> Phi Range: ["+phi_min.toPrecision(3)+":"+phi_max.toPrecision(3)+"]<br>";
+		con.innerHTML+="> Solver L2 norm: "+$.l2.toExponential(2)+"<br>";
+	
 		/*plot particles*/
-		for (var p=0;p<np;p++)
-			sc_plot.circle($.parts[p].x,$.parts[p].v,$.parts[p].tag);
+		if (sc_plot.visible)
+		{
+			sc_plot.clear();
+			for (var p=0;p<np;p++)
+				sc_plot.circle($.parts[p].x,$.parts[p].v,$.parts[p].tag);
+			//sc_plot.label("x-v phase");
+		}
+		
+		/*compute velocity histogram*/
+		if (hist_plot.visible)
+		{
+			var n_bins=40;
+			var bins = [];
+			var min_vel = -3*$.vmag0;
+			var dv = (-2*min_vel)/(n_bins);
+			for (var i=0;i<n_bins;i++) bins.push(0);
+			for (var p=0;p<np;p++) {var b=Math.floor(($.parts[p].v-min_vel)/dv);
+			if (b<0) b=0; if (b>=n_bins-1) b=n_bins-1;	bins[b]++;}
 			
-		/*check for end condition*/
-		$.time += sub_it*$.dt;
-	//	if ($.time>10) window.clearInterval($.int_id);
+			hist_plot.hist(bins,0.25*np);
+			hist_plot.label("velocity histogram");
+		}
+		
+		if (phi_plot.visible)
+		{
+			phi_plot.clear();
+			phi_plot.xy($.x,$.phi,"rgb(0,0,0)",2);
+		//	phi_plot.xy($.x,$.ef,"rgb(255,0,0)",1);
+			phi_plot.xy($.x,$.rho,"rgb(0,255,0)",1);
+			phi_plot.label("phi & rho");
+		}
 	}
 };
 
@@ -328,6 +568,17 @@ var hist_plot = new Plot();
 var phi_plot = new Plot();
 var sim = new TwoSI();
 </script>
+
+<script type="text/javascript">
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-10172387-4', 'auto');
+  ga('send', 'pageview');
+</script>
+
 
 </body>
 </html>
