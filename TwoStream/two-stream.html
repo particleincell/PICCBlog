@@ -1,3 +1,8 @@
+<!--
+Two stream instability simulation implemented in Javascript
+Written by Lubos Brieda, 4/2015
+See https://www.particleincell.com/2015/two-stream-instability/ for more information
+-->
 <html>
 <head>
 <meta charset="utf8">
@@ -496,7 +501,8 @@ var TwoSI = function()
 	p.plots = function()
 	{
 		var np = $.parts.length;
-	
+		var ni = $.ni;
+		
 		/*compute statistics*/
 		var KE=0;
 		var PE=0;
@@ -508,8 +514,8 @@ var TwoSI = function()
 		KE*=0.5;
 		
 		for (var i=0;i<ni;i++)
-			PE += rho[i]*phi[i];
-		PE *= $.q0;
+			PE += $.rho[i]*$.phi[i];
+		PE *= 0.5;
 		
 		phi_min=$.phi[0],phi_max=$.phi[0];
 		for (var i=0;i<ni;i++)
@@ -523,7 +529,7 @@ var TwoSI = function()
 		con.innerHTML+="** Particle In Cell Consulting LLC **<br>";		
 		con.innerHTML+="> Simulation Time: "+$.time.toPrecision(3)+"<br>";
 		con.innerHTML+="> Kinetic Energy: "+KE.toFixed(3)+"<br>";
-		con.innerHTML+="> Field Energy: "+PE.toPrecision(3)+"<br>";
+		con.innerHTML+="> Field Energy: "+PE.toFixed(3)+"<br>";
 		//con.innerHTML+="> Total Energy: "+(PE+KE).toPrecision(3)+"<br>";
 		con.innerHTML+="> Phi Range: ["+phi_min.toPrecision(3)+":"+phi_max.toPrecision(3)+"]<br>";
 		con.innerHTML+="> Solver L2 norm: "+$.l2.toExponential(2)+"<br>";
