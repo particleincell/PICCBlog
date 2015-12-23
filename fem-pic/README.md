@@ -1,4 +1,4 @@
-#FEM-PIC
+#Finite Element Particle In Cell (FEM-PIC)
 
 Example of a Finite Element PIC code simulating flow of ions past a sphere on an unstructured mesh.
  
