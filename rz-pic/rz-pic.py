@@ -159,7 +159,7 @@ def plot(ax,data,scatter=False):
     pl.ylim(min(pos_r),max(pos_r))
     ax.grid(b=True,which='both',color='k',linestyle='-')
     ax.set_aspect('equal', adjustable='box')
-  #  pl.colorbar(cf,ax=pl.gca(),orientation='horizontal',shrink=0.75, pad=0.01)
+ #   pl.colorbar(cf,ax=pl.gca(),orientation='horizontal',shrink=0.75, pad=0.01)
 
     
 #---------- INITIALIZATION ----------------------------------------
@@ -250,7 +250,7 @@ print ("Expected ion speed is %.2f m/s"%math.sqrt(2*phi0*qm))
 #positions for plotting
 pos_r = numpy.linspace(0,(nr-1)*dr,nr)
 pos_z = numpy.linspace(0,(nz-1)*dz,nz)
-fig1 = pl.figure(num=None, figsize=(10, 10), dpi=80, facecolor='w', edgecolor='k')
+fig1 = pl.figure(num=None, figsize=(20, 10), dpi=80, facecolor='w', edgecolor='k')
 sub = (pl.subplot(211),pl.subplot(212))
 
 #solve potential

@@ -1,0 +1,94 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>3D Viewer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" type="text/css" href="style.css">
+<script src="gl/gl-matrix.js"></script>
+<script src="gl/webgl-utils.js"></script>
+<script src="gl/webgl-debug.js"></script>
+<script src="functions.js"></script>
+<script src="file.js"></script>
+<script>window.onload=function(){init();}</script>
+
+</head>
+
+<body>
+<div id="header">
+<h1>3D Viewer</h1>
+<span>WebGL 3D viewer for Paraview-formatted surface mesh files</span>
+</div>
+<div id="drop"> Drop <b>.vtu</b> or <b>.vtp</b> files here</div>
+<div id="content3D">
+	<div class="resize" style="width:500px;height:500px;">
+	<canvas id="c_3d" ></canvas>
+	</div>
+	
+	<form id="ui_3d">
+	<fieldset><legend>Variables:</legend>
+	<span class="comment">(*) indicates cell-centered data</span><br>
+	<select id="vars_3d" size=4></select><br>
+	Min: <input id="range_min_3d" class="number" type="text"><br>
+	Max: <input id="range_max_3d" class="number" type="text"><br>
+	Levels: <input id="range_levels_3d" class="number" type="text"><br>
+	Log Scale: <input id="range_log_3d" type="checkbox"><br>
+	</fieldset>
+	</form>
+	
+</div>
+
+<footer>
+<p id="log"></p>
+<a href="https://www.particleincell.com"><div title="Developed by Particle In Cell Consulting LLC" class="logo"></div></a>
+
+<script id="shader-fs" type="x-shader/x-fragment">
+    precision mediump float;
+	varying vec4 vColor;   /*this is passed in from the vertex shader*/
+    
+    void main(void) {
+        gl_FragColor = vColor;   
+    }
+</script>
+
+<script id="shader-vs" type="x-shader/x-vertex">
+    attribute vec4 aPosition;
+    attribute vec4 aColor;
+	attribute vec3 aNormal;
+    
+    uniform mat4 mvMatrix;
+	uniform mat3 uNormalMatrix;
+	uniform vec3 uLightColor;
+	uniform vec3 uLightPosition;
+	uniform vec3 uAmbientLight;
+	
+	uniform int black;
+    
+	/*data to pass to fragment shader*/
+	//pMatrix * vMatrix * mMatrix
+	varying vec4 vColor;
+    
+    void main(void) {
+		gl_Position =   mvMatrix * aPosition;
+		
+		vec3 normal = normalize(vec3(uNormalMatrix*aNormal));
+		/*position before applying perspective / view transformations
+		should multiply by model matrix but not doing any rotations so will be unity
+		*/
+		vec4 vertPos = aPosition;
+		
+		vec3 lightDir = normalize(uLightPosition-vec3(vertPos));
+		float nDotL  = max(dot(lightDir,normal),0.0);
+		/*color due to diffuse reflection*/
+		vec3 diffuse = 0.2*uLightColor*aColor.rgb*nDotL;
+		vec3 ambient = 0.8*uAmbientLight*aColor.rgb;
+		vColor = vec4(diffuse+ambient,aColor.a);
+				
+		if (black==1) vColor=vec4(0,0,0,1);
+		
+		gl_PointSize = 5.0;
+    }
+</script>
+</footer>	
+ </body>
+</html>

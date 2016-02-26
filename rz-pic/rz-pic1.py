@@ -1,11 +1,13 @@
 # axisymmetric (RZ) particle in cell code example
 #
+# see https://www.particleincell.com/2015/rz-pic/ for more info
 # simulates a simplistic ion source in which ions are
 # produced from a volumetric source with constant electron and 
 # neutral density (i.e. not taking into account avalanche ionization
 # or source depletion)
 #
 # code illustrates velocity and position rotation in RZ
+# step 1: domain setup
 #
 # requires numpy, scipy, pylab, and mathplotlib
 
@@ -13,7 +15,6 @@ import numpy
 import pylab as pl
 import math
 from random import (seed,random)
-from matplotlib.colors import LogNorm
 
 def XtoL(pos):
     lc = [pos[0]/dz, pos[1]/dr]
@@ -26,103 +27,26 @@ def Pos(lc):
 def R(j):
     return j*dr
  
-def gather(data,lc):
-    i = numpy.trunc(lc[0])
-    j = numpy.trunc(lc[1])
-    di = lc[0] - i
-    dj = lc[1] - j
-    return  (data[i][j]*(1-di)*(1-dj) +
-          data[i+1][j]*(di)*(1-dj) + 
-          data[i][j+1]*(1-di)*(dj) + 
-          data[i+1][j+1]*(di)*(dj)) 
     
-def scatter(data,lc,value):
-    i = numpy.trunc(lc[0])
-    j = numpy.trunc(lc[1])
-    di = lc[0] - i
-    dj = lc[1] - j
-            
-    data[i][j] += (1-di)*(1-dj)*value
-    data[i+1][j] += (di)*(1-dj)*value
-    data[i][j+1] += (1-di)*(dj)*value
-    data[i+1][j+1] += (di)*(dj)*value
-       
-#particle definition
-class Particle:
-    def __init__(self,pos,vel):
-        self.pos=[pos[0],pos[1],0]    #xyz position
-        self.vel=[vel[0],vel[1],vel[2]]
+def plot(ax,data,scatter=False):
+    pl.sca(ax)
+    pl.cla()
+    cf = pl.contourf(pos_z, pos_r, numpy.transpose(data),8,alpha=.75,linewidth=1,cmap='jet')
+    #cf = pl.pcolormesh(pos_z, pos_r, numpy.transpose(data))
+    if (scatter):
+        ax.hold(True);
+        (ZZ,RR)=pl.meshgrid(pos_z,pos_r)
+        ax.scatter(ZZ,RR,c=numpy.transpose(cell_type),cmap='winter')
+    ax.set_yticks(pos_r)
+    ax.set_xticks(pos_z)
+    ax.xaxis.set_ticklabels([])
+    ax.yaxis.set_ticklabels([])
+    pl.xlim(min(pos_z),max(pos_z))
+    pl.ylim(min(pos_r),max(pos_r))
+    ax.grid(b=True,which='both',color='k',linestyle='-')
+    ax.set_aspect('equal', adjustable='box')
+  #  pl.colorbar(cf,ax=pl.gca(),orientation='horizontal',shrink=0.75, pad=0.01)
 
-# --- helper functions ----
-def sampleIsotropicVel(vth):
-    #pick a random angle
-    theta = 2*math.pi*random()
-    
-    #pick a random direction for n[2]
-    R = -1.0+2*random()
-    a = math.sqrt(1-R*R)
-    n = (math.cos(theta)*a, math.sin(theta)*a, R)
-    
-    #pick maxwellian velocities
-    vm = numpy.zeros(3)
-    vm[0:3] = vth*(2*(random()+random()+random()-1.5))
-    
-    vel = (n[0]*vm[0], n[1]*vm[1], n[2]*vm[2]) 
-    return vel
-
-#simple Jacobian solver, does not do any convergence checking
-def solvePotentialJacobian(P):
-    
-    #reset potential, some instability is driving the solution
-    #towards divergence if this is not used
-    #phi[:][:] = numpy.where(cell_type>0,P,0)
-    
-    t1 = numpy.zeros_like(P)
-    t2 = numpy.zeros_like(P)
-    dz2 = dz*dz
-    dr2 = dr*dr
-
-    #set radia
-    r = numpy.zeros_like(P)
-    for i in range(nz):
-        for j in range(nr):
-            r[i][j] = R(j)
-    
-    for it in range (100):
-        t1[1:-1] = (P[2:]  + P[:-2]) / dz2
-        t2[:,1:-1] = (P[:,2:]*0.5*(r[:,2:]+r[:,1:-1]) + 
-                      P[:,:-2]*0.5*(r[:,:-2]+r[:,1:-1]))/(dr2*r[:,1:-1])
-               
-        Ax = t1+t2
-        rho_e = QE*n0*numpy.exp(numpy.subtract(P,phi0)/kTe)
-        b = -(rho_i - rho_e)/EPS0
-   
-        g = (b-Ax)
-        g[:,1:-1] /= (-2/dz2 - 
-                      (r[:,1:-1]+0.5*r[:,0:-2]+0.5*r[:,2:])/(dr2*r[:,1:-1]))
-         
-        #neumann boundaries
-        g[0] = P[1]
-        g[-1] = P[-2]
-        g[:,0] = P[:,1]
-        g[:,-1] = P[:,-2]
-         
-        #dirichlet nodes
-        P = numpy.where(cell_type>0,P,g)
-    return P
-
-#computes electric field                    
-def computeEF(phi,efz,efr):
-    #central difference
-    efz[1:-1] = (phi[0:nz-2]-phi[2:nz+1])/(2*dz)
-    efr[:,1:-1] = (phi[:,0:nr-2]-phi[:,2:nr+1])/(2*dr)
-    
-    #one sided difference on boundaries
-    efz[0,:] = (phi[0,:]-phi[1,:])/dz
-    efz[-1,:] = (phi[-2,:]-phi[-1,:])/dz
-    efr[:,0] = (phi[:,0]-phi[:,1])/dr
-    efr[:,-1] = (phi[:,-2]-phi[:,-1])/dr
-    
     
 #---------- INITIALIZATION ----------------------------------------
 
@@ -134,7 +58,7 @@ nz = 35
 nr = 12
 dz = 1e-3
 dr = 1e-3    
-dt = 5e-8
+dt = 5e-9
 
 QE = 1.602e-19
 AMU =  1.661e-27
@@ -143,29 +67,30 @@ EPS0 = 8.854e-12
 charge = QE
 m = 40*AMU  #argon ions  
 qm = charge/m                   
-spwt = 2e2
+spwt = 50
 
 #solver parameters
-n0 = 1e13
-phi1 = 1
-phi0 = -1
-kTe = 2
+n0 = 1e12
+phi0 = 100
+phi1 = 0
+kTe = 5
 
 phi = numpy.zeros([nz,nr])
 efz = numpy.zeros([nz,nr])
 efr = numpy.zeros([nz,nr])
+rho_i = numpy.zeros([nz,nr])
+den = numpy.zeros([nz,nr])
 
 # ---- sugarcube domain --------------------
 cell_type = numpy.zeros([nz,nr]);
-tube1_radius = 0.005;
+tube1_radius = 6*dr;
 tube1_length = 0.01;
-tube1_aperture_rad = 3*dr;
+tube1_aperture_rad = 4*dr;
 tube2_radius = tube1_radius+dr;
 tube2_length = tube1_length+2*dz;
-tube2_aperture_rad = 2*dr;
-[tube_i_max, tube_j_max] = map(int, XtoL([tube1_length, tube1_radius]))
+tube2_aperture_rad = 3*dr;
+[tube_i_max, tube_j_max] = map(int, XtoL([4*dz, tube1_radius]))
 
- 
 for i in range(0,nz):
     for j in range(0,nr):
         pos = Pos([i,j])  # node position
@@ -176,48 +101,45 @@ for i in range(0,nz):
         (pos[0]>=tube1_length and pos[0]<tube1_length+0.5*dz and 
             pos[1]>=tube1_aperture_rad and pos[1]<tube1_radius) ) :
             cell_type[i][j]=1
-            phi[i][j] = phi1
-        
-        if ((pos[0]<=tube2_length and pos[1]>=tube2_radius and pos[1]<tube2_radius+0.5*dr) or
-        (pos[0]>=tube2_length and pos[0]<=tube2_length+0.5*dz and 
-            pos[1]>=tube2_aperture_rad and pos[1]<tube2_radius) ) :
-            cell_type[i][j]=1
             phi[i][j] = phi0
         
-        #target
-        if (i==nz-1):
-            cell_type[i][j] = 2
-            phi[i][j] = 0
-               
+        if ((pos[0]<=tube2_length and pos[1]>=tube2_radius and pos[1]<tube2_radius+0.5*dr) or
+        (pos[0]>=tube2_length and pos[0]<=tube2_length+1.5*dz and 
+            pos[1]>=tube2_aperture_rad and pos[1]<=tube2_radius) ) :
+            cell_type[i][j]=2
+            phi[i][j] = phi1
+                       
+#----------- COMPUTE NODE VOLUMES ------------------------
+node_volume = numpy.zeros([nz,nr])
+for i in range(0,nz):
+    for j in range(0,nr):
+        j_min = j-0.5
+        j_max = j+0.5
+        if (j_min<0): j_min=0
+        if (j_max>nr-1): j_max=nr-1
+        a = 0.5 if (i==0 or i==nz-1) else 1.0
+        #note, this is r*dr for non-boundary nodes
+        node_volume[i][j] = a*dz*(R(j_max)**2-R(j_min)**2)  
+
 #create an array of particles
 particles = []
+    
+#counter for fractional particles    
+mpf_rem = numpy.zeros([nz,nr])
+rho_i = numpy.zeros([nz,nr])
 
 lambda_d = math.sqrt(EPS0*kTe/(n0*QE))
 print ("Debye length is %.4g, which is %.2g*dz"%(lambda_d,lambda_d/dz))
-    
+print ("Expected ion speed is %.2f m/s"%math.sqrt(2*phi0*qm))
 
 #positions for plotting
 pos_r = numpy.linspace(0,(nr-1)*dr,nr)
 pos_z = numpy.linspace(0,(nz-1)*dz,nz)
 fig1 = pl.figure(num=None, figsize=(10, 10), dpi=80, facecolor='w', edgecolor='k')
-sub = (fig1.add_subplot(111))
-        
-
-ax=sub
-ax.hold(False)
-cf =ax.contourf(pos_z, pos_r, numpy.transpose(phi),8,alpha=.75,linewidth=1,cmap='jet')
-ax.hold(True);
-(ZZ,RR)=pl.meshgrid(pos_z,pos_r)
-ax.scatter(ZZ,RR,c=numpy.transpose(phi),cmap='jet')
-ax.set_yticks(pos_r)
-ax.set_xticks(pos_z)
-pl.grid(b=True,which='both',color='k',linestyle='-')
-ax.xaxis.set_ticklabels([])
-ax.yaxis.set_ticklabels([])
-pl.xlim(min(pos_z),max(pos_z))
-pl.ylim(min(pos_r),max(pos_r))
-pl.gca().set_aspect('equal', adjustable='box')
-pl.colorbar(cf,orientation='horizontal',shrink=0.75, pad=0.01)
+sub = (pl.subplot(111))
+    
+#----------- END OF MAIN LOOP ------------------------
+plot(sub,cell_type,scatter=True)               
 pl.draw()
       
 

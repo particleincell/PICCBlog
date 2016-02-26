@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+div{display:inline-block; vertical-align:bottom;}
+div#top{margin-bottom:1em;}
+div#drop,div#drop2,div#drop3{border: 2px dashed silver;width: 100px;height:4em;color: silver;text-align:center;
+padding:0.5em 0.2em;}
+div#controls{width: 200px;text-align:center;}
+input[type="range"]{width:5em;}
+div.resize{
+width:600px;height:600px;
+display:inline-block;border:1px solid black;resize:both;overflow:hidden;
+padding:0px;}
+select.vars{max-width:200px}
+canvas{border:1px solid red;}
+#log{height:12em;width:30em;}
+
+</style>
+	<script type="text/javascript" src="gl-matrix.js"></script>
+	<script type="text/javascript" src="webgl-debug.js"></script>
+
+</head>
+
+<body>
+<canvas id="c" width="600" height="600" oncontextmenu="return false;"></canvas>
+<br>
+<textarea id="log"></textarea>
+<div id="ui">
+
+<script id="shader-fs" type="x-shader/x-fragment">
+    precision mediump float;
+	varying vec4 vColor;   /*this is passed in from the vertex shader*/
+    
+    void main(void) {
+        gl_FragColor = vColor;   
+    }
+</script>
+
+<script id="shader-vs" type="x-shader/x-vertex">
+    attribute vec4 a_position;
+    attribute vec4 a_color;
+	attribute vec3 a_normal;
+    
+    uniform mat4 mvMatrix;
+	uniform mat3 uNormalMatrix;
+	uniform vec3 uLightColor;
+	uniform vec3 uLightPosition;
+	uniform vec3 uAmbientLight;
+	
+	uniform int black;
+    
+	/*data to pass to fragment shader*/
+	//pMatrix * vMatrix * mMatrix
+	varying vec4 vColor;
+    
+    void main(void) {
+		gl_Position =   mvMatrix * a_position;
+		
+		vec3 normal = normalize(vec3(uNormalMatrix*a_normal));
+		/*position before applying perspective / view transformations
+		should multiply by model matrix but not doing any rotations so will be unity
+		*/
+		vec4 vertPos = a_position;
+		
+		vec3 lightDir = normalize(uLightPosition-vec3(vertPos));
+		float nDotL  = max(-dot(lightDir,normal),0.0);
+		/*color due to diffuse reflection*/
+		vec3 diffuse = 0.2*uLightColor*a_color.rgb*nDotL;
+		vec3 ambient = 0.8*uAmbientLight*a_color.rgb;
+		vColor = vec4(diffuse+ambient,a_color.a);
+				
+		if (black==1) vColor=vec4(0,0,0,1);
+		
+		gl_PointSize = 5.0;
+    }
+</script>
+
+<script>
+window.onload=function(){init();}
+
+var ctx;
+var w,h;
+var c_main;
+
+var vertices;
+var normals;
+var indexes;
+
+function init()
+{
+	c_main = document.getElementById("c");
+	console.log(c_main);
+	initGL(c_main);
+	initShaders();
+       
+	initData();
+	
+	document.onmousedown = handleMouseDown;
+	document.onmouseup = handleMouseUp;
+	document.onmousemove = handleMouseMove;
+	
+	drawScene();
+	//tick();	   
+}
+
+
+/************ DRAW SCENE *************************/
+var camAngle=0;
+var vMatrix = mat4.create();
+var mMatrix = mat4.create();
+var pMatrix = mat4.create();
+var mvMatrix = mat4.create();
+var tempMatrix = mat4.create();
+var normalMatrix = mat3.create();
+var camView = null;
+function drawScene() 
+{
+	/*U=U*P, need to multiply from left due to column major?*/
+	
+	/*premultiply matrix as it is used by all vertices
+	pMatrix * vMatrix * mMatrix*/	
+	mat4.mul(tempMatrix,vMatrix,mMatrix);
+	mat4.mul(mvMatrix,pMatrix,tempMatrix);
+	
+	gl.uniformMatrix4fv(gl.getUniformLocation(shaderProgram,"mvMatrix"), false, mvMatrix);
+	
+	/*set normals*/
+	mat3.normalFromMat4(normalMatrix,mMatrix);
+	gl.uniformMatrix3fv(gl.getUniformLocation(shaderProgram,"uNormalMatrix"), false, normalMatrix);
+
+	/*set light*/
+	gl.uniform3f(gl.getUniformLocation(shaderProgram,"uLightPosition"), comp.vertices[0]-5, comp.vertices[1], comp.vertices[2]);
+	gl.uniform3f(gl.getUniformLocation(shaderProgram,"uLightColor"), 1.0, 1.0, 1.0);
+	gl.uniform3f(gl.getUniformLocation(shaderProgram,"uAmbientLight"), 1.0, 1.0, 1.0);
+	
+	gl.uniform1i(gl.getUniformLocation(shaderProgram, "black"), 0);
+	gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, comp.triIndexBuffer);	
+	gl.drawElements(gl.TRIANGLES, comp.triIndexBuffer.numItems*3, gl.UNSIGNED_SHORT,0);
+	//gl.drawElements(gl.POINTS,comp.triIndexBuffer.numItems*3,gl.UNSIGNED_SHORT,0);
+
+	gl.uniform1i(gl.getUniformLocation(shaderProgram, "black"), 1);
+	gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, comp.lineIndexBuffer);	
+	gl.drawElements(gl.LINES, comp.num_lines*2, gl.UNSIGNED_SHORT, 0);
+    
+	var x= [0, 0, 0, 0];
+	var log = document.getElementById("log");
+	var str="";
+	str=mat4.str(mvMatrix);
+	/*str+="\n\n"
+	for (var i=0;i<6;i++)
+	{
+		for (var j=0;j<3;j++) x[j]=comp.vertices[i*3+j];
+		x[3]=1.0;
+		mat4.multiplyVec4(x,mvMatrix,x);
+		str+="x"+(i+1)+": "+x[0].toFixed(2)+"("+(x[0]/x[3]).toFixed(2)+") "+x[1].toFixed(2)+"("+(x[1]/x[3]).toFixed(2)+") ("+x[2].toFixed(2)+" "+x[3].toFixed(2)+")\n";
+	}*/
+		
+	log.innerHTML=str;
+}
+
+var gl;
+
+function initGL(canvas) {
+	try {
+		//gl = canvas.getContext("webgl");
+		gl = WebGLDebugUtils.makeDebugContext(canvas.getContext("webgl"));            
+	} catch (e) {
+	}
+	if (!gl) {
+		alert("Could not initialise WebGL");
+	}
+	gl.clearColor(1.0, 1.0, 1.0, 1.0);
+	gl.enable(gl.DEPTH_TEST);
+	//gl.enable(gl.CULL_FACE);
+}
+
+function getShader(gl, id) 
+{
+	var shaderScript = document.getElementById(id);
+	if (!shaderScript) {
+		return null;
+	}
+
+	var str = "";
+	var k = shaderScript.firstChild;
+	while (k) {
+		if (k.nodeType == 3) {
+			str += k.textContent;
+		}
+		k = k.nextSibling;
+	}
+
+	var shader;
+	if (shaderScript.type == "x-shader/x-fragment") {
+		shader = gl.createShader(gl.FRAGMENT_SHADER);
+	} else if (shaderScript.type == "x-shader/x-vertex") {
+		shader = gl.createShader(gl.VERTEX_SHADER);
+	} else {
+		return null;
+	}
+
+	gl.shaderSource(shader, str);
+	gl.compileShader(shader);
+
+	if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+		alert(gl.getShaderInfoLog(shader));
+		return null;
+	}
+
+	return shader;
+}
+
+var shaderProgram;
+
+function initShaders() 
+{
+	var fragmentShader = getShader(gl, "shader-fs");
+	var vertexShader = getShader(gl, "shader-vs");
+
+	shaderProgram = gl.createProgram();
+	gl.attachShader(shaderProgram, vertexShader);
+	gl.attachShader(shaderProgram, fragmentShader);
+	gl.linkProgram(shaderProgram);
+
+	if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+		alert("Could not initialise shaders");
+	}
+
+	gl.useProgram(shaderProgram);
+        
+	shaderProgram.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, "a_position");
+	gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
+
+	shaderProgram.normalAttribute = gl.getAttribLocation(shaderProgram, "a_normal");
+	gl.enableVertexAttribArray(shaderProgram.normalAttribute);
+
+	shaderProgram.vertexColorAttribute = gl.getAttribLocation(shaderProgram, "a_color");
+	gl.enableVertexAttribArray(shaderProgram.vertexColorAttribute);
+   
+	shaderProgram.uMatrix = gl.getUniformLocation(shaderProgram, "uMatrix");        
+}
+
+/*animation*/
+ function tick() 
+ {
+        requestAnimationFrame(tick);
+		drawScene();
+    }
+
+var comp={};
+function initData()
+{
+	var vertices = [ 
+	-10, -10, -5,
+	-10, -10, 10,
+	-10,  10, 10,
+	-10,  10, -5,
+	10, -10, -5,
+	10, -10, 10,
+	10,  10, 10,
+	10,  10, -5,
+	-4,  -4, 10,
+	 4,  -4, 10,
+	 4,   4, 10,
+	-4,   4, 10,
+	-2,  -2, 10.1,
+	 2,  -2, 10.1,
+	 2,   2, 10.1,
+	-2,   2, 10.1];
+
+	var indexes = [
+	0, 1, 2,
+	2, 3, 0,
+	4, 7, 6,
+	6, 5, 4,
+	8, 9, 10,
+	10, 11, 8,
+	12, 15, 13,
+	13, 15, 14];
+	
+	var data = [
+	0, 0, 0, 0,
+	1, 1, 1, 1,
+	2, 2, 2, 2,
+	3, 3, 3, 3
+	];
+	
+	
+	comp.vertices=vertices;	/*save for testing*/
+	comp.positionBuffer = gl.createBuffer();
+	gl.bindBuffer(gl.ARRAY_BUFFER, comp.positionBuffer);
+	gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+	comp.positionBuffer.itemSize = 3;
+	comp.positionBuffer.numItems = vertices.length/3;
+	gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, comp.positionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+	
+	var num_verts = vertices.length/3;
+	var num_tris = indexes.length/3;
+	
+	/*create index buffer*/
+	comp.triIndexBuffer = gl.createBuffer();
+	gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, comp.triIndexBuffer);
+	gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indexes), gl.STATIC_DRAW);
+	comp.triIndexBuffer.itemSize = 3;
+	comp.triIndexBuffer.numItems = num_tris;
+	
+	/*index buffer for lines*/
+	var line_indexes = [];
+	for (var i=0;i<num_tris;i++)
+	{
+		line_indexes.push(indexes[i*3],indexes[i*3+1],
+						  indexes[i*3+1],indexes[i*3+2],
+						  indexes[i*3+2],indexes[i*3]);
+	}
+	comp.lineIndexBuffer = gl.createBuffer();
+	gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, comp.lineIndexBuffer);
+	gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(line_indexes), gl.STATIC_DRAW);
+	comp.lineIndexBuffer.itemSize = 2;
+	comp.num_lines = num_tris*3;
+	
+	/*compute normals*/
+	var normals = [];
+	var counts = [];
+	for (var i=0;i<num_verts;i++) {normals.push(0,0,0);counts.push(0);}
+	
+	for (var i=0;i<num_tris;i++)
+	{
+		var v1 = [0,0,0];
+		var v2 = [0,0,0];
+		var v3 = [0,0,0];
+		var tri_verts = [0,0,0];
+		for (var j=0;j<3;j++) tri_verts[j] = indexes[i*3+j];
+		
+		for (var j=0;j<3;j++)
+		{
+			v1[j] = vertices[tri_verts[0]*3+j];
+			v2[j] = vertices[tri_verts[1]*3+j];
+			v3[j] = vertices[tri_verts[2]*3+j];			
+		}
+		
+		var r1 = vec_sub(v2,v1);
+		var r2 = vec_sub(v3,v1);
+		var n = vec_unit(vec_cross(r1,r2));
+		
+		/*add to normals*/
+		for (var k=0;k<3;k++)
+		{
+			for (var j=0;j<3;j++)
+				normals[tri_verts[k]*3+j]+=n[j];			
+			counts[tri_verts[k]]++;
+		}
+	}
+	
+	/*average normals*/
+	for (var i=0;i<num_verts;i++)
+	{
+		for (var j=0;j<3;j++) normals[i*3+j]/=counts[i];	
+	}
+	/*
+	console.log(normals);
+	
+	var normals = [
+	1, 0, 0,
+	1, 0, 0,
+	1, 0, 0,
+	1, 0, 0,
+	-1, 0, 0,
+	-1, 0, 0,
+	-1, 0, 0,
+	-1, 0, 0,
+	0, 0, -1,
+	0, 0, -1,
+	0, 0, -1,
+	0, 0, -1,
+	0, 0, -1,
+	0, 0, -1,
+	0, 0, -1,
+	0, 0, -1
+	];*/
+	
+	comp.normalsBuffer = gl.createBuffer();
+	gl.bindBuffer(gl.ARRAY_BUFFER, comp.normalsBuffer);
+	gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals), gl.STATIC_DRAW);
+	comp.normalsBuffer.itemSize = 3;
+	comp.normalsBuffer.numItems = normals.length/3;
+	gl.vertexAttribPointer(shaderProgram.normalAttribute, comp.normalsBuffer.itemSize, gl.FLOAT, false, 0, 0);
+	
+	mat3.identity(normalMatrix);
+	
+	/*get scalars range*/
+	var min = data[0];
+	var max = data[0];
+	for (var i=0;i<data.length;i++)
+	{
+		if (data[i]<min) min=data[i];
+		if (data[i]>max) max=data[i];
+	}
+	
+	console.log("Data range: "+min+" : "+max);
+    var colors = []
+	for (var i=0; i < data.length; i++) 
+	{
+		var f=(data[i]-min)/(max-min);
+		var a=(1-f)/0.25;	//invert and group
+		var X=Math.floor(a);	//this is the integer part
+		var Y=Math.floor(255*(a-X)); //fractional part from 0 to 255
+		switch(X)
+		{
+			case 0: r=255;g=Y;b=0;break;
+			case 1: r=255-Y;g=255;b=0;break;
+			case 2: r=0;g=255;b=Y;break;
+			case 3: r=0;g=255-Y;b=255;break;
+			case 4: r=0;g=0;b=255;break;
+			default: r=0;g=0;b=0;break;
+		}
+		
+		colors = colors.concat([r/255.0,g/255.0,b/255.0]);
+	}
+
+	/*copy data to webGL*/
+    comp.colorBuffer = gl.createBuffer();
+	gl.bindBuffer(gl.ARRAY_BUFFER, comp.colorBuffer);
+	gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.STATIC_DRAW);
+	comp.colorBuffer.itemSize = 3;
+	comp.colorBuffer.numItems = data.length;
+	gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, comp.colorBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+
+	var width = gl.drawingBufferWidth;
+	var height = gl.drawingBufferHeight;
+	gl.viewport(0, 0, width, height);	/*draw in entire context*/
+
+	/*reset depth bit*/
+	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+	/*get data range*/
+	var box1 = [comp.vertices[0],comp.vertices[1],comp.vertices[2]]
+	var box2 = [box1[0], box1[1], box1[2]]
+	for (var i=0;i<comp.vertices.length;i++)
+	{
+		j = i%3;
+		if (box1[j]>comp.vertices[i]) box1[j]=comp.vertices[i];
+		if (box2[j]<comp.vertices[i]) box2[j]=comp.vertices[i];
+	}
+	/*range*/
+	var xr = box2[0]-box1[0];
+	var yr = box2[1]-box1[1];
+	var zr = box2[2]-box1[2];
+
+	/*model view matrix*/
+	mat4.identity(mMatrix);
+
+	camAngle = 0*Math.PI/180.0;
+	var r=25;
+	var x0=[box1[0]+0.5*xr,box1[1]+0.5*yr,box1[2]+0.5*zr];
+
+	var camMatrix = mat4.create();
+	mat4.lookAt(camMatrix, [x0[0], x0[1], x0[2]-r], [x0[0],x0[1],x0[2]], [0,1,0]);
+	mat4.invert(vMatrix,camMatrix);
+
+	mat4.identity(pMatrix);
+	//mat4.perspective(pMatrix,90*Math.PI/180.0, width / height, 0.1, 100);
+	mat4.ortho(pMatrix,box1[0]-xr,box2[0]+xr,
+					   box1[1]-yr,box2[1]+yr,
+					   box1[2]-zr,3*zr);
+  	
+}
+
+/*matrix math function*/
+mat4.multiplyVec4= function (r,M,x)
+{
+	if (!x) x=r;
+	var t=[0,0,0,0];
+	for (var i=0;i<4;i++)
+	{
+		t[i] = M[i]*x[0] + M[i+4]*x[1] + 
+		       M[i+8]*x[2] + M[i+12]*x[3];
+	}
+	
+	/*copy*/
+	for (var i=0;i<4;i++) r[i]=t[i];
+}
+
+/*mouse*/
+var lastMouseX, lastMouseY;
+var mouseDown = false;
+var mouseClick;
+var CLICK = {
+LEFT : {value: 0, name: "Left"}, 
+RIGHT: {value: 1, name: "Right"}, 
+MIDDLE : {value: 2, name: "Middle"}
+};
+
+ function handleMouseDown(event) {
+    mouseDown = true;
+	if (event.buttons==1) mouseClick = CLICK.LEFT;
+	else if (event.buttons==2) mouseClick = CLICK.RIGHT;
+	else if (event.buttons==3 || event.buttons==4) mouseClick = CLICK.MIDDLE;
+    lastMouseX = event.clientX;
+    lastMouseY = event.clientY;
+  }
+
+  function handleMouseUp(event) {
+    mouseDown = false;
+	event.preventDefault();
+  }
+
+  function handleMouseMove(event) {
+    if (!mouseDown) {
+      return;
+    }
+	event.preventDefault();
+	
+    var newX = parseInt(event.clientX);
+    var newY = parseInt(event.clientY);
+
+    var deltaX = newX - lastMouseX;
+    var deltaY = newY - lastMouseY;
+    
+	if (mouseClick == CLICK.LEFT)
+	{
+		/*rotation with left click*/
+		mat4.rotateY(vMatrix, vMatrix, degToRad(deltaX / 2.0));
+		mat4.rotateX(vMatrix, vMatrix, degToRad(deltaY / 2.0));
+	}
+	else if (mouseClick == CLICK.RIGHT)
+	{
+		/*need to return to avoid setting lastMouseY*/
+		if (Math.abs(deltaY)<2) return;
+		
+		f=1.1;
+		if (deltaY<0) f=1.0/f;
+		mat4.scale(vMatrix, vMatrix, [f,f,f]);
+		
+	}
+	else if (mouseClick == CLICK.MIDDLE)
+	{
+		/*translation*/
+		mat4.translate(vMatrix, vMatrix, [-deltaX/15.0,-deltaY/15.0,0]);
+	}
+
+    
+    lastMouseX = newX
+    lastMouseY = newY;
+	requestAnimationFrame(drawScene);
+  }
+ 
+ function degToRad(d) {return d*Math.PI/180.0;}
+ 
+ function vec_sub(a,b) { return [a[0]-b[0],a[1]-b[1],a[2]-b[2]];}
+ function vec_cross(a,b) 
+ {
+	var i = a[1]*b[2] - a[2]*b[1];
+	var j = a[2]*b[0] - a[0]*b[2];
+	var k = a[0]*b[1] - a[1]*b[0];
+	return [i,j,k]; 
+ }
+ 
+ function vec_unit(a) 
+ {
+	var mag = Math.sqrt(a[0]*a[0] + a[1]*a[1] + a[2]*a[2]);
+	return [a[0]/mag, a[1]/mag, a[2]/mag];	
+ }
+</script>
+

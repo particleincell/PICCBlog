@@ -1,6 +1,7 @@
 /* Example of a Finite Element ES-PIC Code
 
   Written by Lubos Brieda for Advanced PIC 2015 Lesson 8
+  See https://www.particleincell.com/2015/fem-pic/ for more information
   
   To compile and run:
 	mkdir results
@@ -1216,7 +1217,7 @@ void OutputMesh(int ts, Volume &volume, double *phi, double **ef, double *ion_de
 /*saves particle data*/
 void OutputParticles(vector<Particle> &particles)
 {
-	ofstream out("particles.vtp");
+	ofstream out("results/particles.vtp");
 	if (!out.is_open()) {cerr<<"Failed to open output file "<<endl;exit(-1);}
 	
 	/*header*/
