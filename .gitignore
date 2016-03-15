@@ -41,3 +41,7 @@ $RECYCLE.BIN/
 Network Trash Folder
 Temporary Items
 .apdisk
+cuda-pic/cuda-pic.sdf
+*.suo
+cuda-pic/cuda-pic.vcxproj.user
+*.pdb
