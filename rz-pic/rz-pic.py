@@ -37,8 +37,8 @@ def gather(data,lc):
           data[i+1][j+1]*(di)*(dj)) 
     
 def scatter(data,lc,value):
-    i = numpy.trunc(lc[0])
-    j = numpy.trunc(lc[1])
+    i = int(numpy.trunc(lc[0]))
+    j = int(numpy.trunc(lc[1]))
     di = lc[0] - i
     dj = lc[1] - j
             
