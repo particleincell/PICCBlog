@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+</head>
+
+<body>
+<canvas width="400" height="400" id="canv">Canvas not supported!</canvas>
+<div>
+Using <span id="span_samples">0</span> samples, &pi; is <b><span id="span_pi">0</span></b>
+<br>
+<input type="button" value="Start" id="button_start" onclick="start()"></input>
+<input type="button" value="Reset" id="button_reset" onclick="reset()"></input>
+</div>
+
+<script>
+// global variables
+var c = document.getElementById("canv");
+var ctx = c.getContext("2d");
+var N_in = 0;
+var N_tot = 0;
+var running = false;
+
+// picks and classifies a single random point
+function sample() {
+  var x = Math.random();  // pick random number in [0,1)
+  var y = Math.random();
+  N_tot++;                // increment samples counter
+  var r = 5;		      // default radius
+  var color = "red";      // default color
+
+  // update size, color, and counter if in circle
+  if (Math.sqrt(x*x+y*y)<=1) {
+    r = 7;
+    color = "green";
+    N_in++;
+  }
+
+  // scale and flip y, canvas y=0 is on top
+  x*=c.width;
+  y=(1-y)*c.height;
+
+  // create gradient for drawing circles
+  var grd = ctx.createRadialGradient(x, y, 0, x, y, 1.3*r);
+  grd.addColorStop(0, color);
+  grd.addColorStop(1, "white");
+
+  // draw circle
+  ctx.beginPath();
+  ctx.arc(x,y,r, 0, 2*Math.PI);
+  ctx.fillStyle = grd;
+  ctx.fill(); 
+
+  // update output on average every 20 steps (to avoid flicker)
+  if (N_tot%Math.floor((Math.random()*20))==0) {
+    var pi = 4*(N_in/N_tot);
+    document.getElementById("span_samples").innerHTML=N_tot;
+    document.getElementById("span_pi").innerHTML=pi.toFixed(5);
+  }
+
+  // if simulation running, request to be called again ASAP
+  if (running) requestAnimationFrame(sample);
+}
+
+// toggles whether simulation runs, also updates button text
+function start() {
+  running = !running;
+  document.getElementById("button_start").value = running?"Stop":"Start";
+  if (running) sample();  // call sample function if running
+}
+
+// resets counts and clears the canvas
+function reset() {
+  ctx.fillStyle="white";
+  ctx.fillRect(0,0,c.width,c.height);
+  N_in = 0; N_tot=0;
+  document.getElementById("span_samples").innerHTML=N_tot;
+  document.getElementById("span_pi").innerHTML=0;
+}
+</script>
+
+</body>
+</html> 

@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+</head>
+
+<body id="body">
+<canvas width="400" height="400" id="canv">Canvas not supported!</canvas>
+<div>
+Using <span id="span_samples">0</span> pixels, &pi; is <b><span id="span_pi">0</span></b>
+<br>
+</div>
+
+<script>
+main();
+
+function main() {
+// global variables
+var c = document.getElementById("canv");
+const gl = c.getContext('webgl');
+
+if (!gl) { document.getElementById("body").innerHTML="webGL not supported!"; return; }
+
+  // Vertex shader program
+  const vsSource = `
+    attribute vec4 aVertexPosition;
+    void main() {
+      // simply copy the vertex position
+      gl_Position = aVertexPosition;
+    }
+  `;
+
+  // Fragment shader program
+  const fsSource = `
+    precision mediump float;
+    uniform ivec2 uDims;
+    void main() {
+	  float x = gl_FragCoord.x/float(uDims.x);
+      float y = gl_FragCoord.y/float(uDims.y);
+      // paint pixel green(-ish) if inside the circle, red otherwise
+      if (x*x+y*y<=1.0) gl_FragColor = vec4(0,0.8,0,1.0);
+      else gl_FragColor = vec4(1.0,0,0,1.0);
+    }
+  `;
+
+  // set up the GPU code
+  const shaderProgram = initShaderProgram(gl, vsSource, fsSource);
+  // draw the image
+  drawScene(gl,shaderProgram);
+
+  // postprocess on the CPU - could be done faster on the GPU
+  // get a buffer containing all pixels
+  var N_in = 0;
+  var N_tot = gl.drawingBufferWidth*gl.drawingBufferHeight;
+  var pixels = new Uint8Array(N_tot * 4);
+  gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+  // loop over all pixels and count how many we have with non-zero green component (inside)
+  for (var u=0;u<N_tot;u++)
+     if(pixels[4*u+1]>0) N_in++;
+
+  // update screen info
+  document.getElementById("span_samples").innerHTML = N_tot;
+  document.getElementById("span_pi").innerHTML = 4.0*N_in/N_tot;
+}
+
+// uses GPU to color all pixels inside a circle green
+function drawScene(gl, program) {
+  // Tell WebGL to use our program when drawing
+  gl.useProgram(program);
+
+  // copy window dimensions to the fragment shader
+  var uDims = gl.getUniformLocation(program, "uDims");
+  gl.uniform2iv(uDims, [gl.drawingBufferWidth, gl.drawingBufferHeight]);
+
+  // clear the canvas
+  gl.clearColor(1.0, 1.0, 1.0, 1.0);  // Clear to white, fully opaque
+  gl.clearDepth(1.0);                 // Clear everything
+  gl.enable(gl.DEPTH_TEST);           // Enable depth testing
+  gl.depthFunc(gl.LEQUAL);            // Near things obscure far things
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+  // copy vertex positions to a buffer, (-1,-1):(1,1) are the extents of a webGL window
+  {
+    const positionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    const positions = [
+      1.0,  1.0,
+     -1.0,  1.0,
+      1.0, -1.0,
+     -1.0, -1.0,
+    ];
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+    const numComponents = 2;
+    const type = gl.FLOAT;
+    const normalize = false;
+    const stride = 0;
+    const offset = 0;
+    var aVertexPosition = gl.getAttribLocation(program, 'aVertexPosition');
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.vertexAttribPointer(aVertexPosition, numComponents, type, normalize, stride, offset);
+    gl.enableVertexAttribArray(aVertexPosition);
+  }
+
+  // draw the triangles
+  {
+    const offset = 0;
+    const vertexCount = 4;
+    gl.drawArrays(gl.TRIANGLE_STRIP, offset, vertexCount);
+  }
+}
+
+// this function sets up the GPU code
+function initShaderProgram(gl, vsSource, fsSource) {
+  const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource);
+  const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource);
+
+  const shaderProgram = gl.createProgram();
+  gl.attachShader(shaderProgram, vertexShader);
+  gl.attachShader(shaderProgram, fragmentShader);
+  gl.linkProgram(shaderProgram);
+
+  if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+    alert('Unable to initialize the shader program: ' + gl.getProgramInfoLog(shaderProgram));
+    return null;
+  }
+
+  return shaderProgram;
+}
+
+// loads shader code from the strings
+function loadShader(gl, type, source) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    alert('An error occurred compiling the shaders: ' + gl.getShaderInfoLog(shader));
+    gl.deleteShader(shader);
+    return null;
+  }
+
+  return shader;
+}
+</script>
+</body>
+</html> 
